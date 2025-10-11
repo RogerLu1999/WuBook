@@ -1,7 +1,5 @@
-const STORAGE_KEY = 'wubook-entries-v1';
-
 const state = {
-    entries: loadEntries(),
+    entries: [],
     filters: {
         search: '',
         subject: ''
@@ -21,29 +19,30 @@ const editDialog = document.getElementById('edit-dialog');
 const editForm = document.getElementById('edit-form');
 const confirmClearDialog = document.getElementById('confirm-clear');
 
-render();
+init();
 
 entryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(entryForm);
 
-    const entry = {
-        id: crypto.randomUUID(),
-        subject: formData.get('subject').trim(),
-        title: formData.get('title').trim(),
-        description: formData.get('description').trim(),
-        reason: formData.get('reason').trim(),
-        comments: formData.get('comments').trim(),
-        tags: parseTags(formData.get('tags')),
-        photo: await readFileAsDataUrl(formData.get('photo')),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-    };
+    try {
+        const response = await fetch('/api/entries', {
+            method: 'POST',
+            body: formData
+        });
 
-    state.entries.unshift(entry);
-    persist();
-    entryForm.reset();
-    render();
+        if (!response.ok) {
+            throw new Error('Failed to save entry');
+        }
+
+        const entry = await response.json();
+        state.entries.unshift(normalizeEntry(entry));
+        entryForm.reset();
+        render();
+    } catch (error) {
+        console.error(error);
+        alert('Unable to save entry. Please try again.');
+    }
 });
 
 searchInput.addEventListener('input', (event) => {
@@ -56,14 +55,20 @@ subjectFilter.addEventListener('change', (event) => {
     renderEntries();
 });
 
-exportBtn.addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(state.entries, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `wubook-entries-${new Date().toISOString().split('T')[0]}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+exportBtn.addEventListener('click', async () => {
+    try {
+        const exportEntries = await Promise.all(state.entries.map(prepareEntryForExport));
+        const blob = new Blob([JSON.stringify(exportEntries, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `wubook-entries-${new Date().toISOString().split('T')[0]}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error(error);
+        alert('Failed to export entries.');
+    }
 });
 
 importInput.addEventListener('change', async (event) => {
@@ -74,24 +79,20 @@ importInput.addEventListener('change', async (event) => {
         const text = await file.text();
         const imported = JSON.parse(text);
         if (!Array.isArray(imported)) throw new Error('Invalid format');
+        const response = await fetch('/api/entries/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(imported)
+        });
 
-        const existingIds = new Set(state.entries.map((entry) => entry.id));
-        let addedCount = 0;
+        if (!response.ok) throw new Error('Import failed');
 
-        for (const raw of imported) {
-            if (!raw.title || !raw.subject) continue;
-
-            const entry = normalizeEntry(raw);
-            if (!existingIds.has(entry.id)) {
-                state.entries.push(entry);
-                existingIds.add(entry.id);
-                addedCount += 1;
-            }
-        }
-
-        persist();
+        const { added, entries } = await response.json();
+        state.entries = entries.map(normalizeEntry);
         render();
-        alert(`Imported ${addedCount} new entries.`);
+        alert(`Imported ${added} new entries.`);
     } catch (error) {
         console.error(error);
         alert('Failed to import entries. Please ensure the file is a WuBook export.');
@@ -106,9 +107,16 @@ clearBtn.addEventListener('click', () => {
 
 confirmClearDialog.addEventListener('close', () => {
     if (confirmClearDialog.returnValue === 'confirm') {
-        state.entries = [];
-        persist();
-        render();
+        fetch('/api/entries', { method: 'DELETE' })
+            .then((response) => {
+                if (!response.ok) throw new Error('Failed to clear entries');
+                state.entries = [];
+                render();
+            })
+            .catch((error) => {
+                console.error(error);
+                alert('Unable to clear entries.');
+            });
     }
 });
 
@@ -123,9 +131,16 @@ entriesContainer.addEventListener('click', (event) => {
     switch (button.dataset.action) {
         case 'delete':
             if (confirm('Delete this entry?')) {
-                state.entries = state.entries.filter((item) => item.id !== entry.id);
-                persist();
-                render();
+                fetch(`/api/entries/${entry.id}`, { method: 'DELETE' })
+                    .then((response) => {
+                        if (!response.ok) throw new Error('Failed to delete');
+                        state.entries = state.entries.filter((item) => item.id !== entry.id);
+                        render();
+                    })
+                    .catch((error) => {
+                        console.error(error);
+                        alert('Unable to delete entry.');
+                    });
             }
             break;
         case 'edit':
@@ -148,16 +163,37 @@ editDialog.addEventListener('close', () => {
     const entry = state.entries.find((item) => item.id === id);
     if (!entry) return;
 
-    entry.subject = document.getElementById('edit-subject').value.trim();
-    entry.title = document.getElementById('edit-title').value.trim();
-    entry.description = document.getElementById('edit-description').value.trim();
-    entry.reason = document.getElementById('edit-reason').value.trim();
-    entry.comments = document.getElementById('edit-comments').value.trim();
-    entry.tags = parseTags(document.getElementById('edit-tags').value);
-    entry.updatedAt = new Date().toISOString();
+    const payload = {
+        subject: document.getElementById('edit-subject').value.trim(),
+        title: document.getElementById('edit-title').value.trim(),
+        description: document.getElementById('edit-description').value.trim(),
+        reason: document.getElementById('edit-reason').value.trim(),
+        comments: document.getElementById('edit-comments').value.trim(),
+        tags: parseTags(document.getElementById('edit-tags').value)
+    };
 
-    persist();
-    render();
+    fetch(`/api/entries/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    })
+        .then((response) => {
+            if (!response.ok) throw new Error('Failed to update');
+            return response.json();
+        })
+        .then((updated) => {
+            const index = state.entries.findIndex((item) => item.id === updated.id);
+            if (index !== -1) {
+                state.entries[index] = normalizeEntry(updated);
+                render();
+            }
+        })
+        .catch((error) => {
+            console.error(error);
+            alert('Unable to update entry.');
+        });
 });
 
 function render() {
@@ -191,9 +227,9 @@ function renderEntries() {
 
         const photoEl = card.querySelector('.entry-photo');
         photoEl.innerHTML = '';
-        if (entry.photo) {
+        if (entry.photoUrl) {
             const img = document.createElement('img');
-            img.src = entry.photo;
+            img.src = entry.photoUrl;
             img.alt = `Photo for ${entry.title}`;
             photoEl.append(img);
         }
@@ -324,50 +360,6 @@ function parseTags(input) {
         .map((tag) => tag.toLowerCase());
 }
 
-async function readFileAsDataUrl(file) {
-    if (!(file instanceof File)) return null;
-    if (!file.size) return null;
-
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = (error) => reject(error);
-        reader.readAsDataURL(file);
-    });
-}
-
-function loadEntries() {
-    try {
-        const data = localStorage.getItem(STORAGE_KEY);
-        if (!data) return [];
-        const parsed = JSON.parse(data);
-        if (!Array.isArray(parsed)) return [];
-        return parsed.map(normalizeEntry);
-    } catch (error) {
-        console.error('Failed to parse stored entries', error);
-        return [];
-    }
-}
-
-function normalizeEntry(raw) {
-    return {
-        id: raw.id || crypto.randomUUID(),
-        subject: (raw.subject || '').trim(),
-        title: (raw.title || '').trim(),
-        description: (raw.description || '').trim(),
-        reason: (raw.reason || '').trim(),
-        comments: (raw.comments || '').trim(),
-        tags: Array.isArray(raw.tags) ? raw.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean) : parseTags(raw.tags || ''),
-        photo: raw.photo || null,
-        createdAt: raw.createdAt || new Date().toISOString(),
-        updatedAt: raw.updatedAt || raw.createdAt || new Date().toISOString()
-    };
-}
-
-function persist() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.entries));
-}
-
 function formatRelativeTime(iso) {
     const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
     const date = new Date(iso);
@@ -398,10 +390,57 @@ function formatRelativeTime(iso) {
     duration = Math.round(duration);
     return formatter.format(duration, unit);
 }
-
-window.addEventListener('storage', (event) => {
-    if (event.key === STORAGE_KEY) {
-        state.entries = loadEntries();
+async function init() {
+    try {
+        const response = await fetch('/api/entries');
+        if (!response.ok) throw new Error('Failed to load entries');
+        const entries = await response.json();
+        state.entries = entries.map(normalizeEntry);
         render();
+    } catch (error) {
+        console.error(error);
+        alert('Unable to load saved entries.');
     }
-});
+}
+
+function normalizeEntry(raw) {
+    return {
+        id: raw.id,
+        subject: raw.subject,
+        title: raw.title,
+        description: raw.description,
+        reason: raw.reason,
+        comments: raw.comments,
+        tags: Array.isArray(raw.tags) ? raw.tags : [],
+        photoUrl: raw.photoUrl || null,
+        createdAt: raw.createdAt,
+        updatedAt: raw.updatedAt
+    };
+}
+
+async function prepareEntryForExport(entry) {
+    const normalized = normalizeEntry(entry);
+    if (!entry.photoUrl) {
+        return normalized;
+    }
+
+    try {
+        const response = await fetch(entry.photoUrl);
+        if (!response.ok) throw new Error('Failed to fetch photo');
+        const blob = await response.blob();
+        const dataUrl = await readBlobAsDataUrl(blob);
+        return { ...normalized, photoDataUrl: dataUrl };
+    } catch (error) {
+        console.error('Failed to include photo in export', error);
+        return normalized;
+    }
+}
+
+function readBlobAsDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = (error) => reject(error);
+        reader.readAsDataURL(blob);
+    });
+}
