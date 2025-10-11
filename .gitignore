@@ -3,6 +3,7 @@ node_modules/
 # Persist the folder structure while keeping runtime data out of Git.
 data/*
 !data/.gitkeep
+!data/entries.json
 !data/uploads/
 data/uploads/*
 !data/uploads/.gitkeep
