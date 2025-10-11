@@ -283,6 +283,15 @@ select:focus {
     border: 1px solid var(--border);
 }
 
+.photo-error {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 10px;
+    background: rgba(226, 232, 240, 0.6);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
 .entry-footer {
     display: flex;
     flex-direction: column;

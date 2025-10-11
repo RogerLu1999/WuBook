@@ -19,10 +19,12 @@ WuBook is a lightweight web application designed to help you capture, review, an
 3. **Start the server**: `npm start` (defaults to <http://localhost:3000>). The HTML file relies on the API routes provided by the server, so opening `index.html` directly from the file system will not allow you to save entries or upload photos.
 4. Open the app in your browser and start logging mistakes.
 
-All data lives in the `data/` directory alongside the app (an empty folder is included so you know where to look):
+All data lives in the `data/` directory alongside the app:
 
 - `data/entries.json` – JSON array containing every entry.
 - `data/uploads/` – Photo files saved with unique names.
+
+A small demo entry is included so you can immediately see how a saved mistake looks in the interface. Feel free to delete or replace it using the app once you're ready to start fresh.
 
 To back up or migrate WuBook, copy the entire `data/` folder. The in-app export button also produces a JSON backup that includes embedded photo data, which can be re-imported later on a fresh installation.
 
