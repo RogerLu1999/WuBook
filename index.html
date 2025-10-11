@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WuBook - Error Tracker</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+    <header class="app-header">
+        <h1>WuBook</h1>
+        <p class="tagline">A light-weight error book to help your child grow through mistakes.</p>
+    </header>
+
+    <main class="layout">
+        <section class="panel" aria-labelledby="entry-form-title">
+            <div class="panel-header">
+                <h2 id="entry-form-title">New Entry</h2>
+                <p>Add mistakes as they happen to keep everything organised.</p>
+            </div>
+            <form id="entry-form" class="form-grid">
+                <label class="field">
+                    <span>Subject</span>
+                    <input type="text" id="subject" name="subject" placeholder="Math, Physics, PE" required />
+                </label>
+                <label class="field field--span-2">
+                    <span>Exercise Title</span>
+                    <input type="text" id="title" name="title" placeholder="Algebra worksheet #3" required />
+                </label>
+                <label class="field field--span-2">
+                    <span>Error Description</span>
+                    <textarea id="description" name="description" rows="3" placeholder="Describe the question and the incorrect answer." required></textarea>
+                </label>
+                <label class="field field--span-2">
+                    <span>Error Reason</span>
+                    <textarea id="reason" name="reason" rows="2" placeholder="Why did it happen?" required></textarea>
+                </label>
+                <label class="field field--span-2">
+                    <span>Corrective Notes</span>
+                    <textarea id="comments" name="comments" rows="2" placeholder="Steps to avoid the same mistake."></textarea>
+                </label>
+                <label class="field">
+                    <span>Tags</span>
+                    <input type="text" id="tags" name="tags" placeholder="fractions, careless, technique" />
+                    <small>Separate tags with commas.</small>
+                </label>
+                <label class="field">
+                    <span>Attach Photo</span>
+                    <input type="file" id="photo" name="photo" accept="image/*" />
+                    <small>Optional – take a picture of the exercise.</small>
+                </label>
+                <button type="submit" class="btn btn-primary field--span-2">Save Entry</button>
+            </form>
+
+            <div class="panel-footer">
+                <button id="export-btn" class="btn">Export All Entries</button>
+                <label class="btn btn-secondary" for="import-input">Import Entries</label>
+                <input type="file" id="import-input" accept="application/json" hidden />
+                <button id="clear-btn" class="btn btn-danger">Clear All</button>
+            </div>
+        </section>
+
+        <section class="panel" aria-labelledby="entries-title">
+            <div class="panel-header">
+                <h2 id="entries-title">Error Library</h2>
+                <div class="filters">
+                    <label>
+                        <span>Search</span>
+                        <input type="search" id="search" placeholder="Search title, reason, comments" />
+                    </label>
+                    <label>
+                        <span>Subject</span>
+                        <select id="subject-filter">
+                            <option value="">All</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <div id="stats" class="stats" role="status" aria-live="polite"></div>
+            <div id="entries" class="entries" aria-live="polite"></div>
+        </section>
+    </main>
+
+    <template id="entry-template">
+        <article class="entry-card" data-id="">
+            <header class="entry-header">
+                <div>
+                    <h3 class="entry-title"></h3>
+                    <p class="entry-meta"></p>
+                </div>
+                <menu class="entry-actions" aria-label="Entry actions">
+                    <button class="btn-icon" data-action="similar" title="Find similar exercises">🔍</button>
+                    <button class="btn-icon" data-action="edit" title="Edit">✏️</button>
+                    <button class="btn-icon" data-action="delete" title="Delete">🗑️</button>
+                </menu>
+            </header>
+            <section class="entry-content">
+                <p class="entry-description"></p>
+                <p class="entry-reason"></p>
+                <p class="entry-comments"></p>
+                <ul class="entry-tags"></ul>
+            </section>
+            <figure class="entry-photo"></figure>
+            <footer class="entry-footer">
+                <p class="entry-timestamp"></p>
+                <div class="entry-similar" hidden>
+                    <h4>Similar exercises</h4>
+                    <ul></ul>
+                </div>
+            </footer>
+        </article>
+    </template>
+
+    <dialog id="edit-dialog">
+        <form method="dialog" id="edit-form" class="form-grid">
+            <h2>Edit Entry</h2>
+            <input type="hidden" id="edit-id" />
+            <label class="field">
+                <span>Subject</span>
+                <input type="text" id="edit-subject" required />
+            </label>
+            <label class="field field--span-2">
+                <span>Exercise Title</span>
+                <input type="text" id="edit-title" required />
+            </label>
+            <label class="field field--span-2">
+                <span>Error Description</span>
+                <textarea id="edit-description" rows="3" required></textarea>
+            </label>
+            <label class="field field--span-2">
+                <span>Error Reason</span>
+                <textarea id="edit-reason" rows="2" required></textarea>
+            </label>
+            <label class="field field--span-2">
+                <span>Corrective Notes</span>
+                <textarea id="edit-comments" rows="2"></textarea>
+            </label>
+            <label class="field">
+                <span>Tags</span>
+                <input type="text" id="edit-tags" />
+            </label>
+            <menu class="dialog-actions">
+                <button value="cancel" class="btn">Cancel</button>
+                <button value="confirm" class="btn btn-primary">Save changes</button>
+            </menu>
+        </form>
+    </dialog>
+
+    <dialog id="confirm-clear">
+        <form method="dialog" class="confirm-dialog">
+            <h2>Delete all entries?</h2>
+            <p>This action will remove every saved mistake. You can export a backup before clearing.</p>
+            <menu class="dialog-actions">
+                <button value="cancel" class="btn">Cancel</button>
+                <button value="confirm" class="btn btn-danger">Delete</button>
+            </menu>
+        </form>
+    </dialog>
+
+    <script src="app.js" type="module"></script>
+</body>
+</html>
