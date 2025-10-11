@@ -226,11 +226,19 @@ function renderEntries() {
         }
 
         const photoEl = card.querySelector('.entry-photo');
+        const photoSource = entry.photoSrc || entry.photoUrl;
         photoEl.innerHTML = '';
-        if (entry.photoUrl) {
+        photoEl.hidden = !photoSource;
+        if (photoSource) {
             const img = document.createElement('img');
-            img.src = entry.photoUrl;
+            img.src = photoSource;
             img.alt = `Photo for ${entry.title}`;
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            img.addEventListener('error', () => {
+                photoEl.innerHTML = '<p class="photo-error">Photo unavailable. It may not have uploaded correctly.</p>';
+                photoEl.hidden = false;
+            }, { once: true });
             photoEl.append(img);
         }
 
@@ -404,6 +412,7 @@ async function init() {
 }
 
 function normalizeEntry(raw) {
+    const photoUrl = raw.photoUrl || null;
     return {
         id: raw.id,
         subject: raw.subject,
@@ -412,7 +421,8 @@ function normalizeEntry(raw) {
         reason: raw.reason,
         comments: raw.comments,
         tags: Array.isArray(raw.tags) ? raw.tags : [],
-        photoUrl: raw.photoUrl || null,
+        photoUrl,
+        photoSrc: resolvePhotoUrl(photoUrl),
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
     };
@@ -420,19 +430,20 @@ function normalizeEntry(raw) {
 
 async function prepareEntryForExport(entry) {
     const normalized = normalizeEntry(entry);
-    if (!entry.photoUrl) {
-        return normalized;
+    const { photoSrc, ...exportEntry } = normalized;
+    if (!exportEntry.photoUrl) {
+        return exportEntry;
     }
 
     try {
-        const response = await fetch(entry.photoUrl);
+        const response = await fetch(photoSrc || exportEntry.photoUrl);
         if (!response.ok) throw new Error('Failed to fetch photo');
         const blob = await response.blob();
         const dataUrl = await readBlobAsDataUrl(blob);
-        return { ...normalized, photoDataUrl: dataUrl };
+        return { ...exportEntry, photoDataUrl: dataUrl };
     } catch (error) {
         console.error('Failed to include photo in export', error);
-        return normalized;
+        return exportEntry;
     }
 }
 
@@ -443,4 +454,17 @@ function readBlobAsDataUrl(blob) {
         reader.onerror = (error) => reject(error);
         reader.readAsDataURL(blob);
     });
+}
+
+function resolvePhotoUrl(url) {
+    if (!url) {
+        return null;
+    }
+
+    try {
+        return new URL(url, window.location.origin).href;
+    } catch (error) {
+        console.warn('Unable to resolve photo URL', url, error);
+        return null;
+    }
 }
