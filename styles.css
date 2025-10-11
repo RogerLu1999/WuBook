@@ -369,6 +369,22 @@ select:focus {
     border: 1px solid var(--border);
 }
 
+.entry-photo__links {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.entry-photo__links a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.entry-photo__links a:hover,
+.entry-photo__links a:focus {
+    text-decoration: underline;
+}
+
 .photo-error {
     margin: 0;
     padding: 0.5rem 0.75rem;

@@ -5,7 +5,7 @@ WuBook is a lightweight web application designed to help you capture, review, an
 ## Features
 
 - 📚 **Structured entries** – Track subject, exercise title, description, reason, corrective notes, tags, and timestamps.
-- 🖼️ **Photo attachments** – Add snapshots of worksheets or physical activities.
+- 🖼️ **Photo attachments** – Add snapshots of worksheets or physical activities, with an automatic print-friendly copy sized to 80% of A4 width.
 - 🔍 **Smart suggestions** – Find similar exercises with built-in text similarity (no external services required).
 - 🧭 **Powerful filters** – Search by keyword and filter by subject.
 - 💾 **File-based storage** – Entries and photos are stored on disk for easy backup.
@@ -43,7 +43,7 @@ WuBook is a lightweight web application designed to help you capture, review, an
 All data lives in the `data/` directory alongside the app:
 
 - `data/entries.json` – JSON array containing every entry.
-- `data/uploads/` – Photo files saved with unique names.
+- `data/uploads/` – Photo files saved with unique names plus matching `-a4` print-sized copies.
 - `data/activity.log` – One JSON object per line describing each create, update, delete, import, and clear action.
 
 A small demo entry is included so you can immediately see how a saved mistake looks in the interface. Feel free to delete or replace it using the app once you're ready to start fresh.

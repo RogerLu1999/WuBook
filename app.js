@@ -262,6 +262,39 @@ function renderEntries() {
                 photoEl.hidden = false;
             }, { once: true });
             photoEl.append(img);
+
+            const links = [];
+            if (entry.photoResizedSrc) {
+                const resizedLink = document.createElement('a');
+                resizedLink.href = entry.photoResizedSrc;
+                resizedLink.target = '_blank';
+                resizedLink.rel = 'noopener';
+                resizedLink.download = '';
+                resizedLink.textContent = 'Print-sized copy';
+                links.push(resizedLink);
+            }
+            if (entry.photoOriginalSrc && entry.photoOriginalSrc !== entry.photoResizedSrc) {
+                const originalLink = document.createElement('a');
+                originalLink.href = entry.photoOriginalSrc;
+                originalLink.target = '_blank';
+                originalLink.rel = 'noopener';
+                originalLink.download = '';
+                originalLink.textContent = 'Original photo';
+                links.push(originalLink);
+            }
+
+            if (links.length) {
+                const caption = document.createElement('figcaption');
+                caption.className = 'entry-photo__links';
+                caption.append(...links.reduce((acc, link, index) => {
+                    if (index > 0) {
+                        acc.push(document.createTextNode(' · '));
+                    }
+                    acc.push(link);
+                    return acc;
+                }, []));
+                photoEl.append(caption);
+            }
         }
 
         card.querySelector('.entry-timestamp').textContent = `Added ${new Date(entry.createdAt).toLocaleString()}`;
@@ -593,6 +626,8 @@ async function init() {
 
 function normalizeEntry(raw) {
     const photoUrl = raw.photoUrl || null;
+    const photoResizedUrl = raw.photoResizedUrl || null;
+    const previewUrl = photoResizedUrl || photoUrl;
     return {
         id: raw.id,
         subject: raw.subject,
@@ -602,7 +637,10 @@ function normalizeEntry(raw) {
         comments: raw.comments,
         tags: Array.isArray(raw.tags) ? raw.tags : [],
         photoUrl,
-        photoSrc: resolvePhotoUrl(photoUrl),
+        photoResizedUrl,
+        photoSrc: resolvePhotoUrl(previewUrl),
+        photoOriginalSrc: resolvePhotoUrl(photoUrl),
+        photoResizedSrc: resolvePhotoUrl(photoResizedUrl),
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
     };
@@ -610,21 +648,36 @@ function normalizeEntry(raw) {
 
 async function prepareEntryForExport(entry) {
     const normalized = normalizeEntry(entry);
-    const { photoSrc, ...exportEntry } = normalized;
+    const { photoSrc, photoOriginalSrc, photoResizedSrc, ...exportEntry } = normalized;
+    const result = { ...exportEntry };
+
     if (!exportEntry.photoUrl) {
-        return exportEntry;
+        return result;
     }
 
-    try {
-        const response = await fetch(photoSrc || exportEntry.photoUrl);
-        if (!response.ok) throw new Error('Failed to fetch photo');
-        const blob = await response.blob();
-        const dataUrl = await readBlobAsDataUrl(blob);
-        return { ...exportEntry, photoDataUrl: dataUrl };
-    } catch (error) {
-        console.error('Failed to include photo in export', error);
-        return exportEntry;
+    if (exportEntry.photoUrl) {
+        try {
+            const originalResponse = await fetch(photoOriginalSrc || photoSrc || exportEntry.photoUrl);
+            if (!originalResponse.ok) throw new Error('Failed to fetch photo');
+            const originalBlob = await originalResponse.blob();
+            result.photoDataUrl = await readBlobAsDataUrl(originalBlob);
+        } catch (error) {
+            console.error('Failed to include photo in export', error);
+        }
     }
+
+    if (exportEntry.photoResizedUrl) {
+        try {
+            const resizedResponse = await fetch(photoResizedSrc || photoSrc || exportEntry.photoResizedUrl);
+            if (!resizedResponse.ok) throw new Error('Failed to fetch resized photo');
+            const resizedBlob = await resizedResponse.blob();
+            result.photoResizedDataUrl = await readBlobAsDataUrl(resizedBlob);
+        } catch (error) {
+            console.error('Failed to include resized photo in export', error);
+        }
+    }
+
+    return result;
 }
 
 function readBlobAsDataUrl(blob) {
