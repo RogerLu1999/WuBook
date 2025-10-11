@@ -8,15 +8,23 @@ WuBook is a lightweight web application designed to help you capture, review, an
 - 🖼️ **Photo attachments** – Add snapshots of worksheets or physical activities.
 - 🔍 **Smart suggestions** – Find similar exercises with built-in text similarity (no external services required).
 - 🧭 **Powerful filters** – Search by keyword and filter by subject.
-- 💾 **Local storage** – Everything is saved in your browser automatically.
+- 💾 **File-based storage** – Entries and photos are stored on disk for easy backup.
 - 📤 **Import & export** – Backup entries to JSON and import them later.
 - ✏️ **Inline editing** – Update notes as your child improves.
 
 ## Getting started
 
 1. Download or clone this repository.
-2. Open `index.html` in your favourite browser.
-3. Start logging mistakes! Entries are saved locally and stay there even after closing the tab.
+2. Install dependencies: `npm install`.
+3. Start the server: `npm start` (defaults to <http://localhost:3000>).
+4. Open the app in your browser and start logging mistakes.
+
+All data lives in the `data/` directory alongside the app:
+
+- `data/entries.json` – JSON array containing every entry.
+- `data/uploads/` – Photo files saved with unique names.
+
+To back up or migrate WuBook, copy the entire `data/` folder. The in-app export button also produces a JSON backup that includes embedded photo data, which can be re-imported later on a fresh installation.
 
 ## Tips
 
@@ -26,4 +34,4 @@ WuBook is a lightweight web application designed to help you capture, review, an
 
 ## Tech stack
 
-This project is a static web app written in vanilla HTML, CSS, and modern JavaScript—no build tools or dependencies required.
+This project uses a lightweight Node.js server (Express + Multer) to accept uploads and persist data, while the interface remains a modern vanilla HTML, CSS, and JavaScript application.
