@@ -14,19 +14,45 @@ WuBook is a lightweight web application designed to help you capture, review, an
 
 ## Getting started
 
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 18 or newer (the `npm` CLI ships with Node).
+- macOS, Windows, or Linux with permission to write to the repository folder (the app saves data to disk).
+
+### Run the app locally
+
 1. Download or clone this repository.
-2. Install dependencies: `npm install`.
-3. **Start the server**: `npm start` (defaults to <http://localhost:3000>). The HTML file relies on the API routes provided by the server, so opening `index.html` directly from the file system will not allow you to save entries or upload photos.
-4. Open the app in your browser and start logging mistakes.
+2. From the project root, install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+3. Start the Express server (this serves `index.html` and exposes the API the form submits to):
+
+   ```bash
+   npm start
+   ```
+
+   You should see `WuBook server running on http://localhost:3000` in the terminal. Leave this process running while you use the app.
+
+4. In your browser, visit <http://localhost:3000>. **Opening `index.html` directly from the file system bypasses the API and will make the “Save Entry” button appear to do nothing.**
+
+5. When you are done, return to the terminal and press `Ctrl+C` to stop the server.
 
 All data lives in the `data/` directory alongside the app:
 
 - `data/entries.json` – JSON array containing every entry.
 - `data/uploads/` – Photo files saved with unique names.
+- `data/activity.log` – One JSON object per line describing each create, update, delete, import, and clear action.
 
 A small demo entry is included so you can immediately see how a saved mistake looks in the interface. Feel free to delete or replace it using the app once you're ready to start fresh.
 
 To back up or migrate WuBook, copy the entire `data/` folder. The in-app export button also produces a JSON backup that includes embedded photo data, which can be re-imported later on a fresh installation.
+
+## Troubleshooting "Save Entry"
+
+If the "Save Entry" button appears to do nothing, work through the [triage playbook](docs/triage.md). It walks through verifying that the Express server is running, checking the browser network request, and confirming that `data/activity.log` and `data/entries.json` are being written to disk.
 
 ## Tips
 
