@@ -16,10 +16,10 @@ WuBook is a lightweight web application designed to help you capture, review, an
 
 1. Download or clone this repository.
 2. Install dependencies: `npm install`.
-3. Start the server: `npm start` (defaults to <http://localhost:3000>).
+3. **Start the server**: `npm start` (defaults to <http://localhost:3000>). The HTML file relies on the API routes provided by the server, so opening `index.html` directly from the file system will not allow you to save entries or upload photos.
 4. Open the app in your browser and start logging mistakes.
 
-All data lives in the `data/` directory alongside the app:
+All data lives in the `data/` directory alongside the app (an empty folder is included so you know where to look):
 
 - `data/entries.json` – JSON array containing every entry.
 - `data/uploads/` – Photo files saved with unique names.
