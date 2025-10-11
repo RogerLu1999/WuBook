@@ -18,6 +18,9 @@ const MM_PER_INCH = 25.4;
 const A4_WIDTH_MM = 210;
 const PRINT_DPI = 300;
 const TARGET_PRINT_WIDTH_PX = Math.round((A4_WIDTH_MM / MM_PER_INCH) * PRINT_DPI * 0.8);
+const PDF_PAGE_WIDTH = 595.28;
+const PDF_PAGE_HEIGHT = 841.89;
+const PDF_MARGIN = 36;
 
 const uploadStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
@@ -178,6 +181,54 @@ app.post('/api/entries/import', async (req, res) => {
         console.error(error);
         await logAction('import-entries', 'error', { message: error.message });
         res.status(500).json({ error: 'Failed to import entries' });
+    }
+});
+
+app.post('/api/entries/export', async (req, res) => {
+    try {
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+        if (!ids || !ids.length) {
+            await logAction('export-entries', 'error', { message: 'No selection provided' });
+            return res.status(400).json({ error: 'Select at least one entry to export.' });
+        }
+
+        const entries = await readEntries();
+        const entryMap = new Map(entries.map((entry) => [entry.id, entry]));
+        const seen = new Set();
+        const selectedEntries = [];
+
+        for (const rawId of ids) {
+            if (typeof rawId !== 'string') continue;
+            if (seen.has(rawId)) continue;
+            seen.add(rawId);
+            const entry = entryMap.get(rawId);
+            if (entry) {
+                selectedEntries.push(entry);
+            }
+        }
+
+        if (!selectedEntries.length) {
+            await logAction('export-entries', 'error', { message: 'Entries not found', requested: ids.length });
+            return res.status(404).json({ error: 'Selected entries were not found.' });
+        }
+
+        const printablePages = await buildPrintablePages(selectedEntries);
+        if (!printablePages.length) {
+            await logAction('export-entries', 'error', { message: 'No printable photos', requested: selectedEntries.length });
+            return res.status(400).json({ error: 'None of the selected entries have printable photos.' });
+        }
+
+        const pdfBuffer = await createPdfFromImages(printablePages);
+        const filename = `wubook-selection-${new Date().toISOString().split('T')[0]}.pdf`;
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        await logAction('export-entries', 'success', { count: printablePages.length });
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error(error);
+        await logAction('export-entries', 'error', { message: error.message });
+        res.status(500).json({ error: 'Failed to generate PDF export.' });
     }
 });
 
@@ -361,6 +412,214 @@ async function generateResizedVariant(filePath) {
         console.warn('Failed to create resized variant', error);
         return null;
     }
+}
+
+async function buildPrintablePages(entries) {
+    const pages = [];
+
+    for (const entry of entries) {
+        const imagePath = await resolvePrintableImage(entry);
+        if (!imagePath) continue;
+
+        try {
+            const { data, info } = await sharp(imagePath)
+                .rotate()
+                .flatten({ background: '#ffffff' })
+                .jpeg({ quality: 95 })
+                .toBuffer({ resolveWithObject: true });
+
+            if (!info.width || !info.height) {
+                continue;
+            }
+
+            pages.push({
+                entry,
+                image: data,
+                width: info.width,
+                height: info.height
+            });
+        } catch (error) {
+            console.warn('Failed to prepare image for PDF export', imagePath, error);
+        }
+    }
+
+    return pages;
+}
+
+async function resolvePrintableImage(entry) {
+    const candidates = [entry.photoResizedUrl, entry.photoUrl];
+
+    for (const candidate of candidates) {
+        const resolved = await resolveUploadPath(candidate);
+        if (resolved) {
+            return resolved;
+        }
+    }
+
+    return null;
+}
+
+async function resolveUploadPath(url) {
+    if (!url || typeof url !== 'string' || !url.startsWith('/uploads/')) {
+        return null;
+    }
+
+    const relative = url.slice('/uploads/'.length);
+    const candidate = path.normalize(path.join(UPLOADS_DIR, relative));
+    if (!candidate.startsWith(UPLOADS_DIR)) {
+        return null;
+    }
+
+    try {
+        await fsp.access(candidate);
+        return candidate;
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            console.warn('Unable to access upload', candidate, error);
+        }
+        return null;
+    }
+}
+
+async function createPdfFromImages(pages) {
+    if (!Array.isArray(pages) || !pages.length) {
+        throw new Error('No pages provided for PDF generation');
+    }
+
+    const header = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
+    const objects = [];
+    let nextObjectId = 1;
+
+    const appendObject = (buffer) => {
+        objects.push(buffer);
+    };
+
+    const createDictionaryObject = (entries) => {
+        const id = nextObjectId++;
+        const parts = Object.entries(entries)
+            .filter(([, value]) => value !== undefined && value !== null)
+            .map(([key, value]) => `/${key} ${value}`)
+            .join(' ');
+        const dict = parts.length ? `<< ${parts} >>\n` : '<< >>\n';
+        appendObject(Buffer.from(`${id} 0 obj\n${dict}endobj\n`));
+        return id;
+    };
+
+    const createStreamObject = (entries, streamBuffer) => {
+        const id = nextObjectId++;
+        const parts = Object.entries(entries)
+            .filter(([, value]) => value !== undefined && value !== null)
+            .map(([key, value]) => `/${key} ${value}`)
+            .join(' ');
+        const dict = parts.length
+            ? `<< ${parts} /Length ${streamBuffer.length} >>\n`
+            : `<< /Length ${streamBuffer.length} >>\n`;
+        appendObject(
+            Buffer.concat([
+                Buffer.from(`${id} 0 obj\n${dict}stream\n`),
+                streamBuffer,
+                Buffer.from('\nendstream\nendobj\n')
+            ])
+        );
+        return id;
+    };
+
+    const pageObjectIds = [];
+    const expectedPagesObjectId = pages.length * 3 + 1;
+
+    const availableWidth = PDF_PAGE_WIDTH - PDF_MARGIN * 2;
+    const availableHeight = PDF_PAGE_HEIGHT - PDF_MARGIN * 2;
+
+    pages.forEach((page, index) => {
+        if (!page.width || !page.height) {
+            return;
+        }
+
+        const imageObjectId = createStreamObject(
+            {
+                Type: '/XObject',
+                Subtype: '/Image',
+                Width: Math.max(1, Math.round(page.width)),
+                Height: Math.max(1, Math.round(page.height)),
+                ColorSpace: '/DeviceRGB',
+                BitsPerComponent: 8,
+                Filter: '/DCTDecode'
+            },
+            page.image
+        );
+
+        const scale = Math.min(availableWidth / page.width, availableHeight / page.height);
+        const renderWidth = page.width * scale;
+        const renderHeight = page.height * scale;
+        const offsetX = PDF_MARGIN + (availableWidth - renderWidth) / 2;
+        const offsetY = PDF_MARGIN + (availableHeight - renderHeight) / 2;
+
+        const contentCommands = [
+            'q',
+            `${renderWidth.toFixed(2)} 0 0 ${renderHeight.toFixed(2)} ${offsetX.toFixed(2)} ${offsetY.toFixed(2)} cm`,
+            `/Im${index} Do`,
+            'Q',
+            ''
+        ].join('\n');
+
+        const contentObjectId = createStreamObject({}, Buffer.from(contentCommands));
+        const resources = `<< /ProcSet [/PDF /ImageC] /XObject << /Im${index} ${imageObjectId} 0 R >> >>`;
+
+        const pageObjectId = createDictionaryObject({
+            Type: '/Page',
+            Parent: `${expectedPagesObjectId} 0 R`,
+            MediaBox: `[0 0 ${PDF_PAGE_WIDTH.toFixed(2)} ${PDF_PAGE_HEIGHT.toFixed(2)}]`,
+            Resources: resources,
+            Contents: `${contentObjectId} 0 R`
+        });
+
+        pageObjectIds.push(pageObjectId);
+    });
+
+    if (!pageObjectIds.length) {
+        throw new Error('No valid images available for PDF export');
+    }
+
+    const kids = pageObjectIds.map((id) => `${id} 0 R`).join(' ');
+    const pagesObjectId = createDictionaryObject({
+        Type: '/Pages',
+        Count: pageObjectIds.length,
+        Kids: `[${kids}]`
+    });
+
+    if (pagesObjectId !== expectedPagesObjectId) {
+        throw new Error('PDF object alignment mismatch');
+    }
+
+    const catalogObjectId = createDictionaryObject({
+        Type: '/Catalog',
+        Pages: `${pagesObjectId} 0 R`
+    });
+
+    const buffers = [header];
+    const offsets = [0];
+    let offset = header.length;
+
+    objects.forEach((buffer) => {
+        offsets.push(offset);
+        buffers.push(buffer);
+        offset += buffer.length;
+    });
+
+    const xrefOffset = offset;
+    const xrefLines = ['xref', `0 ${objects.length + 1}`, '0000000000 65535 f '];
+    for (let index = 1; index <= objects.length; index += 1) {
+        xrefLines.push(`${offsets[index].toString().padStart(10, '0')} 00000 n `);
+    }
+    xrefLines.push('');
+    buffers.push(Buffer.from(xrefLines.join('\n')));
+
+    const trailer = Buffer.from(
+        `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObjectId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`
+    );
+    buffers.push(trailer);
+
+    return Buffer.concat(buffers);
 }
 
 function getExtensionFromMime(mime) {

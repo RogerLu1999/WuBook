@@ -53,7 +53,7 @@
             </form>
 
             <div class="panel-footer">
-                <button id="export-btn" class="btn">Export All Entries</button>
+                <button id="export-btn" class="btn" disabled>Export Selected</button>
                 <label class="btn btn-secondary" for="import-input">Import Entries</label>
                 <input type="file" id="import-input" accept="application/json" hidden />
                 <button id="clear-btn" class="btn btn-danger">Clear All</button>
@@ -78,6 +78,13 @@
             </div>
 
             <div id="stats" class="stats" role="status" aria-live="polite"></div>
+            <div class="selection-toolbar">
+                <p id="selection-status" class="selection-status" role="status" aria-live="polite">No entries selected.</p>
+                <div class="selection-toolbar__actions">
+                    <button type="button" id="select-filtered-btn" class="btn btn-secondary btn-compact">Select Filtered</button>
+                    <button type="button" id="clear-selection-btn" class="btn btn-secondary btn-compact" disabled>Clear Selection</button>
+                </div>
+            </div>
             <div id="entries" class="entries" aria-live="polite"></div>
         </section>
 
@@ -99,7 +106,10 @@
     <template id="entry-template">
         <article class="entry-card" data-id="">
             <header class="entry-header">
-                <div>
+                <div class="entry-select-area">
+                    <input type="checkbox" class="entry-select-input" aria-label="Select entry" />
+                </div>
+                <div class="entry-header__details">
                     <h3 class="entry-title"></h3>
                     <p class="entry-meta"></p>
                 </div>
