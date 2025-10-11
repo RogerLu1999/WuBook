@@ -4,7 +4,8 @@ const state = {
         search: '',
         subject: ''
     },
-    logs: []
+    logs: [],
+    selectedIds: new Set()
 };
 
 const entryForm = document.getElementById('entry-form');
@@ -22,6 +23,11 @@ const confirmClearDialog = document.getElementById('confirm-clear');
 const logList = document.getElementById('activity-log');
 const refreshLogBtn = document.getElementById('refresh-log-btn');
 const logStatusEl = document.getElementById('log-status');
+const selectFilteredBtn = document.getElementById('select-filtered-btn');
+const clearSelectionBtn = document.getElementById('clear-selection-btn');
+const selectionStatusEl = document.getElementById('selection-status');
+
+let exportInProgress = false;
 
 let logStatusTimeout;
 let logLoading = false;
@@ -56,27 +62,70 @@ entryForm.addEventListener('submit', async (event) => {
 
 searchInput.addEventListener('input', (event) => {
     state.filters.search = event.target.value.toLowerCase();
-    renderEntries();
+    const filtered = renderEntries();
+    updateSelectionUI(filtered);
 });
 
 subjectFilter.addEventListener('change', (event) => {
     state.filters.subject = event.target.value;
-    renderEntries();
+    const filtered = renderEntries();
+    updateSelectionUI(filtered);
 });
 
 exportBtn.addEventListener('click', async () => {
+    if (!state.selectedIds.size || exportInProgress) {
+        if (!state.selectedIds.size && !exportInProgress) {
+            alert('Select at least one entry to export.');
+        }
+        return;
+    }
+
+    exportInProgress = true;
+    updateSelectionUI();
+
     try {
-        const exportEntries = await Promise.all(state.entries.map(prepareEntryForExport));
-        const blob = new Blob([JSON.stringify(exportEntries, null, 2)], { type: 'application/json' });
+        const response = await fetch('/api/entries/export', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ ids: Array.from(state.selectedIds) })
+        });
+
+        if (!response.ok) {
+            let message = 'Failed to export entries.';
+            const contentType = response.headers.get('content-type') || '';
+            try {
+                if (contentType.includes('application/json')) {
+                    const data = await response.json();
+                    if (data?.error) message = data.error;
+                } else {
+                    const text = await response.text();
+                    if (text) message = text;
+                }
+            } catch (error) {
+                console.error('Failed to read export error response', error);
+            }
+            throw new Error(message);
+        }
+
+        const blob = await response.blob();
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
+        const filename = parseFilenameFromContentDisposition(response.headers.get('content-disposition'))
+            || `wubook-selection-${new Date().toISOString().split('T')[0]}.pdf`;
         link.href = url;
-        link.download = `wubook-entries-${new Date().toISOString().split('T')[0]}.json`;
+        link.download = filename;
+        document.body.append(link);
         link.click();
+        link.remove();
         URL.revokeObjectURL(url);
     } catch (error) {
         console.error(error);
-        alert('Failed to export entries.');
+        alert(error.message || 'Failed to export entries.');
+    } finally {
+        exportInProgress = false;
+        updateSelectionUI();
     }
 });
 
@@ -167,6 +216,43 @@ entriesContainer.addEventListener('click', (event) => {
     }
 });
 
+entriesContainer.addEventListener('change', (event) => {
+    const checkbox = event.target.closest('.entry-select-input');
+    if (!checkbox) return;
+
+    const card = checkbox.closest('.entry-card');
+    const id = card?.dataset.id;
+    if (!id) return;
+
+    if (checkbox.checked) {
+        state.selectedIds.add(id);
+    } else {
+        state.selectedIds.delete(id);
+    }
+
+    card?.classList.toggle('entry-card--selected', checkbox.checked);
+    updateSelectionUI();
+});
+
+selectFilteredBtn?.addEventListener('click', () => {
+    const filtered = filteredEntries();
+    if (!filtered.length) return;
+
+    for (const entry of filtered) {
+        state.selectedIds.add(entry.id);
+    }
+
+    syncSelectionToDom();
+    updateSelectionUI(filtered);
+});
+
+clearSelectionBtn?.addEventListener('click', () => {
+    if (!state.selectedIds.size) return;
+    state.selectedIds.clear();
+    syncSelectionToDom();
+    updateSelectionUI();
+});
+
 editForm.addEventListener('close', () => {
     // This event doesn't fire on dialog forms in all browsers. Handled by dialog close.
 });
@@ -218,24 +304,34 @@ refreshLogBtn?.addEventListener('click', () => {
 });
 
 function render() {
+    pruneSelection();
     populateSubjectFilter();
-    renderEntries();
+    const filtered = renderEntries();
     renderStats();
     renderActivityLog();
+    updateSelectionUI(filtered);
 }
 
 function renderEntries() {
     entriesContainer.innerHTML = '';
     const fragment = document.createDocumentFragment();
+    const entries = filteredEntries();
 
-    for (const entry of filteredEntries()) {
+    for (const entry of entries) {
         const card = entryTemplate.content.firstElementChild.cloneNode(true);
         card.dataset.id = entry.id;
+        const isSelected = state.selectedIds.has(entry.id);
+        card.classList.toggle('entry-card--selected', isSelected);
         card.querySelector('.entry-title').textContent = entry.title;
         card.querySelector('.entry-meta').textContent = `${entry.subject} • Last updated ${formatRelativeTime(entry.updatedAt)}`;
         card.querySelector('.entry-description').textContent = entry.description;
         card.querySelector('.entry-reason').textContent = `Reason: ${entry.reason}`;
         card.querySelector('.entry-comments').textContent = entry.comments ? `Notes: ${entry.comments}` : '';
+
+        const selectInput = card.querySelector('.entry-select-input');
+        if (selectInput) {
+            selectInput.checked = isSelected;
+        }
 
         const tagsEl = card.querySelector('.entry-tags');
         tagsEl.innerHTML = '';
@@ -307,6 +403,8 @@ function renderEntries() {
     } else {
         entriesContainer.append(fragment);
     }
+
+    return entries;
 }
 
 function renderActivityLog() {
@@ -401,6 +499,85 @@ function filteredEntries() {
             return haystack.includes(state.filters.search);
         })
         .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function pruneSelection() {
+    if (!state.selectedIds.size) return;
+    const validIds = new Set(state.entries.map((entry) => entry.id));
+    for (const id of Array.from(state.selectedIds)) {
+        if (!validIds.has(id)) {
+            state.selectedIds.delete(id);
+        }
+    }
+}
+
+function syncSelectionToDom() {
+    const cards = entriesContainer.querySelectorAll('.entry-card');
+    for (const card of cards) {
+        const id = card.dataset.id;
+        const isSelected = state.selectedIds.has(id);
+        card.classList.toggle('entry-card--selected', isSelected);
+        const checkbox = card.querySelector('.entry-select-input');
+        if (checkbox) {
+            checkbox.checked = isSelected;
+        }
+    }
+}
+
+function updateSelectionUI(filtered = null) {
+    const filteredEntriesList = Array.isArray(filtered) ? filtered : filteredEntries();
+    const totalSelected = state.selectedIds.size;
+    const visibleSelected = filteredEntriesList.filter((entry) => state.selectedIds.has(entry.id)).length;
+
+    if (selectionStatusEl) {
+        let message = 'No entries selected.';
+        if (totalSelected > 0) {
+            const suffix = totalSelected === 1 ? 'entry selected' : 'entries selected';
+            if (visibleSelected && visibleSelected !== totalSelected) {
+                message = `${totalSelected} ${suffix} (${visibleSelected} in view).`;
+            } else if (visibleSelected === totalSelected) {
+                message = `${totalSelected} ${suffix} in view.`;
+            } else {
+                message = `${totalSelected} ${suffix}.`;
+            }
+            selectionStatusEl.classList.add('selection-status--active');
+        } else {
+            selectionStatusEl.classList.remove('selection-status--active');
+        }
+        selectionStatusEl.textContent = message;
+    }
+
+    if (exportBtn) {
+        exportBtn.disabled = !totalSelected || exportInProgress;
+        exportBtn.textContent = exportInProgress ? 'Exporting…' : 'Export Selected';
+    }
+
+    if (clearSelectionBtn) {
+        clearSelectionBtn.disabled = !totalSelected || exportInProgress;
+    }
+
+    if (selectFilteredBtn) {
+        const hasFiltered = filteredEntriesList.length > 0;
+        const allFilteredSelected = hasFiltered && filteredEntriesList.every((entry) => state.selectedIds.has(entry.id));
+        selectFilteredBtn.disabled = !hasFiltered || allFilteredSelected || exportInProgress;
+    }
+}
+
+function parseFilenameFromContentDisposition(header) {
+    if (!header) return null;
+
+    const filenameStar = /filename\*=UTF-8''([^;]+)/i.exec(header);
+    if (filenameStar) {
+        try {
+            return decodeURIComponent(filenameStar[1].replace(/"/g, ''));
+        } catch (error) {
+            console.warn('Unable to decode export filename', error);
+            return filenameStar[1];
+        }
+    }
+
+    const match = /filename="?([^";]+)"?/i.exec(header);
+    return match ? match[1] : null;
 }
 
 function openEditDialog(entry) {
@@ -551,7 +728,8 @@ function formatLogSummary(log) {
         'delete-entry': 'Entry removed',
         'clear-entries': 'All entries cleared',
         'import-entries': 'Entries imported',
-        'list-entries': 'Entries viewed'
+        'list-entries': 'Entries viewed',
+        'export-entries': 'Entries exported'
     };
 
     return labels[log.action] || log.action.replace(/-/g, ' ');
@@ -589,6 +767,11 @@ function formatLogDetails(log) {
         case 'list-entries':
             if (typeof details.total === 'number') {
                 return `Total entries available: ${details.total}.`;
+            }
+            return '';
+        case 'export-entries':
+            if (typeof details.count === 'number') {
+                return `Prepared ${details.count} entr${details.count === 1 ? 'y' : 'ies'} for printing.`;
             }
             return '';
         default:
@@ -644,49 +827,6 @@ function normalizeEntry(raw) {
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
     };
-}
-
-async function prepareEntryForExport(entry) {
-    const normalized = normalizeEntry(entry);
-    const { photoSrc, photoOriginalSrc, photoResizedSrc, ...exportEntry } = normalized;
-    const result = { ...exportEntry };
-
-    if (!exportEntry.photoUrl) {
-        return result;
-    }
-
-    if (exportEntry.photoUrl) {
-        try {
-            const originalResponse = await fetch(photoOriginalSrc || photoSrc || exportEntry.photoUrl);
-            if (!originalResponse.ok) throw new Error('Failed to fetch photo');
-            const originalBlob = await originalResponse.blob();
-            result.photoDataUrl = await readBlobAsDataUrl(originalBlob);
-        } catch (error) {
-            console.error('Failed to include photo in export', error);
-        }
-    }
-
-    if (exportEntry.photoResizedUrl) {
-        try {
-            const resizedResponse = await fetch(photoResizedSrc || photoSrc || exportEntry.photoResizedUrl);
-            if (!resizedResponse.ok) throw new Error('Failed to fetch resized photo');
-            const resizedBlob = await resizedResponse.blob();
-            result.photoResizedDataUrl = await readBlobAsDataUrl(resizedBlob);
-        } catch (error) {
-            console.error('Failed to include resized photo in export', error);
-        }
-    }
-
-    return result;
-}
-
-function readBlobAsDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = (error) => reject(error);
-        reader.readAsDataURL(blob);
-    });
 }
 
 function resolvePhotoUrl(url) {
