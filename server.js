@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fsp = require('fs/promises');
 const multer = require('multer');
+const sharp = require('sharp');
 const { randomUUID } = require('crypto');
 
 const app = express();
@@ -12,6 +13,11 @@ const DATA_DIR = path.join(ROOT_DIR, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const ENTRIES_FILE = path.join(DATA_DIR, 'entries.json');
 const LOG_FILE = path.join(DATA_DIR, 'activity.log');
+
+const MM_PER_INCH = 25.4;
+const A4_WIDTH_MM = 210;
+const PRINT_DPI = 300;
+const TARGET_PRINT_WIDTH_PX = Math.round((A4_WIDTH_MM / MM_PER_INCH) * PRINT_DPI * 0.8);
 
 const uploadStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
@@ -49,7 +55,7 @@ app.get('/api/entries', async (req, res) => {
 
 app.post('/api/entries', upload.single('photo'), async (req, res) => {
     try {
-        const entry = buildEntry(req.body, req.file);
+        const entry = await buildEntry(req.body, req.file);
         const entries = await readEntries();
         entries.unshift(entry);
         await writeEntries(entries);
@@ -115,7 +121,7 @@ app.delete('/api/entries/:id', async (req, res) => {
         }
 
         const [removed] = entries.splice(index, 1);
-        await removePhoto(removed.photoUrl);
+        await removePhoto(removed.photoUrl, removed.photoResizedUrl);
         await writeEntries(entries);
         await logAction('delete-entry', 'success', {
             id: removed.id,
@@ -133,7 +139,7 @@ app.delete('/api/entries', async (req, res) => {
     try {
         const entries = await readEntries();
         for (const entry of entries) {
-            await removePhoto(entry.photoUrl);
+            await removePhoto(entry.photoUrl, entry.photoResizedUrl);
         }
         await writeEntries([]);
         await logAction('clear-entries', 'success', { removed: entries.length });
@@ -195,9 +201,9 @@ app.listen(PORT, async () => {
     console.log(`WuBook server running on http://localhost:${PORT}`);
 });
 
-function buildEntry(body, file) {
+async function buildEntry(body, file) {
     const now = new Date().toISOString();
-    return {
+    const entry = {
         id: body.id && typeof body.id === 'string' ? body.id : randomUUID(),
         subject: (body.subject || '').trim(),
         title: (body.title || '').trim(),
@@ -205,24 +211,49 @@ function buildEntry(body, file) {
         reason: (body.reason || '').trim(),
         comments: (body.comments || '').trim(),
         tags: parseTags(body.tags),
-        photoUrl: file ? `/uploads/${file.filename}` : null,
+        photoUrl: null,
+        photoResizedUrl: null,
         createdAt: body.createdAt || now,
         updatedAt: now
     };
+    if (file) {
+        const filePath = file.path || path.join(UPLOADS_DIR, file.filename);
+        const photoInfo = await finalizePhotoStorage(filePath, file.filename);
+        entry.photoUrl = photoInfo.photoUrl;
+        entry.photoResizedUrl = photoInfo.photoResizedUrl;
+    }
+
+    return entry;
 }
 
 async function buildEntryFromImport(raw) {
-    const entry = buildEntry(raw, null);
+    const entry = await buildEntry(raw, null);
     entry.id = raw.id || entry.id;
     entry.createdAt = raw.createdAt || entry.createdAt;
     entry.updatedAt = raw.updatedAt || entry.updatedAt;
 
     if (raw.photoDataUrl && !entry.photoUrl) {
-        entry.photoUrl = await saveDataUrl(raw.photoDataUrl, entry.id);
+        const photoInfo = await saveDataUrl(raw.photoDataUrl, entry.id);
+        entry.photoUrl = photoInfo.photoUrl;
+        entry.photoResizedUrl = photoInfo.photoResizedUrl;
     } else if (raw.photo && !entry.photoUrl) {
-        entry.photoUrl = await saveDataUrl(raw.photo, entry.id);
+        const photoInfo = await saveDataUrl(raw.photo, entry.id);
+        entry.photoUrl = photoInfo.photoUrl;
+        entry.photoResizedUrl = photoInfo.photoResizedUrl;
     } else if (raw.photoUrl) {
         entry.photoUrl = raw.photoUrl;
+        if (raw.photoResizedUrl) {
+            entry.photoResizedUrl = raw.photoResizedUrl;
+        } else if (raw.photoUrl.startsWith('/uploads/')) {
+            const relative = raw.photoUrl.slice(1);
+            const sourcePath = path.join(ROOT_DIR, relative);
+            try {
+                const resized = await generateResizedVariant(sourcePath);
+                entry.photoResizedUrl = resized;
+            } catch (error) {
+                console.warn('Unable to regenerate resized photo during import', error);
+            }
+        }
     }
 
     return entry;
@@ -264,15 +295,17 @@ async function ensureDirectories() {
     await fsp.mkdir(UPLOADS_DIR, { recursive: true });
 }
 
-async function removePhoto(photoUrl) {
-    if (!photoUrl) return;
-    const relative = photoUrl.startsWith('/') ? photoUrl.slice(1) : photoUrl;
-    const filePath = path.join(ROOT_DIR, relative);
-    try {
-        await fsp.unlink(filePath);
-    } catch (error) {
-        if (error.code !== 'ENOENT') {
-            console.warn('Failed to remove photo', error);
+async function removePhoto(photoUrl, photoResizedUrl) {
+    const targets = [photoUrl, photoResizedUrl].filter(Boolean);
+    for (const target of targets) {
+        const relative = target.startsWith('/') ? target.slice(1) : target;
+        const filePath = path.join(ROOT_DIR, relative);
+        try {
+            await fsp.unlink(filePath);
+        } catch (error) {
+            if (error.code !== 'ENOENT') {
+                console.warn('Failed to remove photo', error);
+            }
         }
     }
 }
@@ -280,7 +313,7 @@ async function removePhoto(photoUrl) {
 async function saveDataUrl(dataUrl, id) {
     const matches = /^data:(.+);base64,(.+)$/.exec(dataUrl);
     if (!matches) {
-        return null;
+        return { photoUrl: null, photoResizedUrl: null };
     }
 
     const mime = matches[1];
@@ -290,7 +323,44 @@ async function saveDataUrl(dataUrl, id) {
     const filePath = path.join(UPLOADS_DIR, filename);
     await ensureDirectories();
     await fsp.writeFile(filePath, buffer);
-    return `/uploads/${filename}`;
+    return finalizePhotoStorage(filePath, filename);
+}
+
+async function finalizePhotoStorage(filePath, filename) {
+    const photoUrl = `/uploads/${filename}`;
+    const photoResizedUrl = await generateResizedVariant(filePath);
+    return {
+        photoUrl,
+        photoResizedUrl
+    };
+}
+
+async function generateResizedVariant(filePath) {
+    try {
+        const { dir, name, ext } = path.parse(filePath);
+        const resizedName = `${name}-a4${ext}`;
+        const resizedPath = path.join(dir, resizedName);
+
+        const image = sharp(filePath);
+        const metadata = await image.metadata();
+        if (!metadata.width || metadata.width <= TARGET_PRINT_WIDTH_PX) {
+            await fsp.copyFile(filePath, resizedPath);
+        } else {
+            await sharp(filePath)
+                .resize({
+                    width: TARGET_PRINT_WIDTH_PX,
+                    fit: 'inside',
+                    withoutEnlargement: true
+                })
+                .withMetadata()
+                .toFile(resizedPath);
+        }
+
+        return `/uploads/${resizedName}`;
+    } catch (error) {
+        console.warn('Failed to create resized variant', error);
+        return null;
+    }
 }
 
 function getExtensionFromMime(mime) {
