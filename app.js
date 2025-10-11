@@ -3,7 +3,8 @@ const state = {
     filters: {
         search: '',
         subject: ''
-    }
+    },
+    logs: []
 };
 
 const entryForm = document.getElementById('entry-form');
@@ -18,6 +19,12 @@ const entryTemplate = document.getElementById('entry-template');
 const editDialog = document.getElementById('edit-dialog');
 const editForm = document.getElementById('edit-form');
 const confirmClearDialog = document.getElementById('confirm-clear');
+const logList = document.getElementById('activity-log');
+const refreshLogBtn = document.getElementById('refresh-log-btn');
+const logStatusEl = document.getElementById('log-status');
+
+let logStatusTimeout;
+let logLoading = false;
 
 init();
 
@@ -39,9 +46,11 @@ entryForm.addEventListener('submit', async (event) => {
         state.entries.unshift(normalizeEntry(entry));
         entryForm.reset();
         render();
+        loadActivityLog();
     } catch (error) {
         console.error(error);
         alert('Unable to save entry. Please try again.');
+        loadActivityLog();
     }
 });
 
@@ -93,9 +102,11 @@ importInput.addEventListener('change', async (event) => {
         state.entries = entries.map(normalizeEntry);
         render();
         alert(`Imported ${added} new entries.`);
+        loadActivityLog();
     } catch (error) {
         console.error(error);
         alert('Failed to import entries. Please ensure the file is a WuBook export.');
+        loadActivityLog();
     } finally {
         importInput.value = '';
     }
@@ -112,10 +123,12 @@ confirmClearDialog.addEventListener('close', () => {
                 if (!response.ok) throw new Error('Failed to clear entries');
                 state.entries = [];
                 render();
+                loadActivityLog();
             })
             .catch((error) => {
                 console.error(error);
                 alert('Unable to clear entries.');
+                loadActivityLog();
             });
     }
 });
@@ -136,10 +149,12 @@ entriesContainer.addEventListener('click', (event) => {
                         if (!response.ok) throw new Error('Failed to delete');
                         state.entries = state.entries.filter((item) => item.id !== entry.id);
                         render();
+                        loadActivityLog();
                     })
                     .catch((error) => {
                         console.error(error);
                         alert('Unable to delete entry.');
+                        loadActivityLog();
                     });
             }
             break;
@@ -188,18 +203,25 @@ editDialog.addEventListener('close', () => {
             if (index !== -1) {
                 state.entries[index] = normalizeEntry(updated);
                 render();
+                loadActivityLog();
             }
         })
         .catch((error) => {
             console.error(error);
             alert('Unable to update entry.');
+            loadActivityLog();
         });
+});
+
+refreshLogBtn?.addEventListener('click', () => {
+    loadActivityLog({ userRequested: true });
 });
 
 function render() {
     populateSubjectFilter();
     renderEntries();
     renderStats();
+    renderActivityLog();
 }
 
 function renderEntries() {
@@ -252,6 +274,59 @@ function renderEntries() {
     } else {
         entriesContainer.append(fragment);
     }
+}
+
+function renderActivityLog() {
+    if (!logList) return;
+
+    logList.innerHTML = '';
+
+    if (!state.logs.length) {
+        logList.innerHTML = '<li class="empty">No activity recorded yet.</li>';
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    for (const log of state.logs) {
+        const item = document.createElement('li');
+        item.className = 'log-entry';
+
+        const header = document.createElement('div');
+        header.className = 'log-entry__header';
+
+        const action = document.createElement('span');
+        action.className = 'log-entry__action';
+
+        const badge = document.createElement('span');
+        badge.className = `log-entry__badge${log.status === 'error' ? ' log-entry__badge--error' : ''}`;
+        badge.textContent = log.status;
+        action.append(badge);
+
+        const description = document.createElement('span');
+        description.textContent = formatLogSummary(log);
+        action.append(description);
+
+        const timestamp = document.createElement('span');
+        timestamp.className = 'log-entry__time';
+        const absolute = new Date(log.timestamp).toLocaleString();
+        timestamp.textContent = `${absolute} • ${formatRelativeTime(log.timestamp)}`;
+
+        header.append(action, timestamp);
+        item.append(header);
+
+        const detailText = formatLogDetails(log);
+        if (detailText) {
+            const details = document.createElement('p');
+            details.className = 'log-entry__details';
+            details.textContent = detailText;
+            item.append(details);
+        }
+
+        fragment.append(item);
+    }
+
+    logList.append(fragment);
 }
 
 function renderStats() {
@@ -398,6 +473,109 @@ function formatRelativeTime(iso) {
     duration = Math.round(duration);
     return formatter.format(duration, unit);
 }
+
+async function loadActivityLog(options = {}) {
+    if (!logList || logLoading) return;
+
+    const { userRequested = false } = options;
+    logLoading = true;
+    refreshLogBtn?.setAttribute('disabled', 'true');
+    setLogStatus(userRequested ? 'Refreshing…' : 'Updating…');
+
+    try {
+        const response = await fetch('/api/logs?limit=50');
+        if (!response.ok) throw new Error('Failed to fetch activity log');
+        const logs = await response.json();
+        state.logs = Array.isArray(logs) ? logs : [];
+        renderActivityLog();
+        setLogStatus(`Updated ${new Date().toLocaleTimeString()}`);
+    } catch (error) {
+        console.error(error);
+        setLogStatus('Unable to load activity log');
+    } finally {
+        logLoading = false;
+        refreshLogBtn?.removeAttribute('disabled');
+    }
+}
+
+function setLogStatus(message) {
+    if (!logStatusEl) return;
+    logStatusEl.textContent = message;
+    if (logStatusTimeout) {
+        clearTimeout(logStatusTimeout);
+    }
+    if (message && !/Unable to load/.test(message)) {
+        logStatusTimeout = setTimeout(() => {
+            logStatusEl.textContent = '';
+        }, 4000);
+    }
+}
+
+function formatLogSummary(log) {
+    const labels = {
+        'create-entry': 'Entry saved',
+        'update-entry': 'Entry updated',
+        'delete-entry': 'Entry removed',
+        'clear-entries': 'All entries cleared',
+        'import-entries': 'Entries imported',
+        'list-entries': 'Entries viewed'
+    };
+
+    return labels[log.action] || log.action.replace(/-/g, ' ');
+}
+
+function formatLogDetails(log) {
+    const details = log.details || {};
+
+    if (log.status === 'error' && details.message) {
+        return details.message;
+    }
+
+    switch (log.action) {
+        case 'create-entry':
+            return formatSubjectLine(details, { includePhoto: true });
+        case 'update-entry':
+            return formatSubjectLine(details);
+        case 'delete-entry':
+            return formatSubjectLine(details);
+        case 'clear-entries':
+            if (typeof details.removed === 'number') {
+                return `Removed ${details.removed} entr${details.removed === 1 ? 'y' : 'ies'}.`;
+            }
+            return '';
+        case 'import-entries': {
+            const parts = [];
+            if (typeof details.added === 'number') {
+                parts.push(`Added ${details.added} new entr${details.added === 1 ? 'y' : 'ies'}`);
+            }
+            if (typeof details.total === 'number') {
+                parts.push(`Now tracking ${details.total} total entr${details.total === 1 ? 'y' : 'ies'}`);
+            }
+            return parts.join('. ');
+        }
+        case 'list-entries':
+            if (typeof details.total === 'number') {
+                return `Total entries available: ${details.total}.`;
+            }
+            return '';
+        default:
+            if (!Object.keys(details).length) return '';
+            return Object.entries(details)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join(', ');
+    }
+}
+
+function formatSubjectLine(details, options = {}) {
+    if (!details) return '';
+    const subject = details.subject ? `Subject: ${details.subject}` : null;
+    const id = details.id ? `ID: ${details.id}` : null;
+    const parts = [subject || id];
+    if (options.includePhoto && typeof details.photo === 'boolean') {
+        parts.push(details.photo ? 'Photo uploaded' : 'No photo');
+    }
+    return parts.filter(Boolean).join(' • ');
+}
 async function init() {
     try {
         const response = await fetch('/api/entries');
@@ -408,6 +586,8 @@ async function init() {
     } catch (error) {
         console.error(error);
         alert('Unable to load saved entries.');
+    } finally {
+        await loadActivityLog();
     }
 }
 

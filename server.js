@@ -11,6 +11,7 @@ const ROOT_DIR = __dirname;
 const DATA_DIR = path.join(ROOT_DIR, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const ENTRIES_FILE = path.join(DATA_DIR, 'entries.json');
+const LOG_FILE = path.join(DATA_DIR, 'activity.log');
 
 const uploadStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
@@ -37,9 +38,11 @@ app.use(express.static(ROOT_DIR));
 app.get('/api/entries', async (req, res) => {
     try {
         const entries = await readEntries();
+        await logAction('list-entries', 'success', { total: entries.length });
         res.json(entries);
     } catch (error) {
         console.error(error);
+        await logAction('list-entries', 'error', { message: error.message });
         res.status(500).json({ error: 'Failed to read entries' });
     }
 });
@@ -50,9 +53,15 @@ app.post('/api/entries', upload.single('photo'), async (req, res) => {
         const entries = await readEntries();
         entries.unshift(entry);
         await writeEntries(entries);
+        await logAction('create-entry', 'success', {
+            id: entry.id,
+            subject: entry.subject,
+            photo: Boolean(entry.photoUrl)
+        });
         res.status(201).json(entry);
     } catch (error) {
         console.error(error);
+        await logAction('create-entry', 'error', { message: error.message });
         res.status(500).json({ error: 'Failed to save entry' });
     }
 });
@@ -62,6 +71,10 @@ app.put('/api/entries/:id', async (req, res) => {
         const entries = await readEntries();
         const index = entries.findIndex((entry) => entry.id === req.params.id);
         if (index === -1) {
+            await logAction('update-entry', 'error', {
+                id: req.params.id,
+                message: 'Entry not found'
+            });
             return res.status(404).json({ error: 'Entry not found' });
         }
 
@@ -77,9 +90,14 @@ app.put('/api/entries/:id', async (req, res) => {
         };
 
         await writeEntries(entries);
+        await logAction('update-entry', 'success', {
+            id: entries[index].id,
+            subject: entries[index].subject
+        });
         res.json(entries[index]);
     } catch (error) {
         console.error(error);
+        await logAction('update-entry', 'error', { message: error.message });
         res.status(500).json({ error: 'Failed to update entry' });
     }
 });
@@ -89,15 +107,24 @@ app.delete('/api/entries/:id', async (req, res) => {
         const entries = await readEntries();
         const index = entries.findIndex((entry) => entry.id === req.params.id);
         if (index === -1) {
+            await logAction('delete-entry', 'error', {
+                id: req.params.id,
+                message: 'Entry not found'
+            });
             return res.status(404).json({ error: 'Entry not found' });
         }
 
         const [removed] = entries.splice(index, 1);
         await removePhoto(removed.photoUrl);
         await writeEntries(entries);
+        await logAction('delete-entry', 'success', {
+            id: removed.id,
+            subject: removed.subject
+        });
         res.status(204).end();
     } catch (error) {
         console.error(error);
+        await logAction('delete-entry', 'error', { message: error.message });
         res.status(500).json({ error: 'Failed to delete entry' });
     }
 });
@@ -109,9 +136,11 @@ app.delete('/api/entries', async (req, res) => {
             await removePhoto(entry.photoUrl);
         }
         await writeEntries([]);
+        await logAction('clear-entries', 'success', { removed: entries.length });
         res.status(204).end();
     } catch (error) {
         console.error(error);
+        await logAction('clear-entries', 'error', { message: error.message });
         res.status(500).json({ error: 'Failed to clear entries' });
     }
 });
@@ -119,6 +148,7 @@ app.delete('/api/entries', async (req, res) => {
 app.post('/api/entries/import', async (req, res) => {
     try {
         if (!Array.isArray(req.body)) {
+            await logAction('import-entries', 'error', { message: 'Invalid payload' });
             return res.status(400).json({ error: 'Invalid payload' });
         }
 
@@ -136,10 +166,23 @@ app.post('/api/entries/import', async (req, res) => {
         }
 
         await writeEntries(existing);
+        await logAction('import-entries', 'success', { added, total: existing.length });
         res.json({ added, entries: existing });
     } catch (error) {
         console.error(error);
+        await logAction('import-entries', 'error', { message: error.message });
         res.status(500).json({ error: 'Failed to import entries' });
+    }
+});
+
+app.get('/api/logs', async (req, res) => {
+    try {
+        const limit = Number.parseInt(req.query.limit, 10) || 50;
+        const logs = await readLogs(limit);
+        res.json(logs);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Failed to read activity log' });
     }
 });
 
@@ -262,6 +305,45 @@ function getExtensionFromMime(mime) {
             return '.webp';
         default:
             return '';
+    }
+}
+
+async function logAction(action, status, details = {}) {
+    try {
+        await ensureDirectories();
+        const entry = {
+            timestamp: new Date().toISOString(),
+            action,
+            status,
+            details
+        };
+        await fsp.appendFile(LOG_FILE, `${JSON.stringify(entry)}\n`);
+    } catch (error) {
+        console.warn('Failed to write activity log', error);
+    }
+}
+
+async function readLogs(limit) {
+    try {
+        const data = await fsp.readFile(LOG_FILE, 'utf8');
+        const lines = data
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => {
+                try {
+                    return JSON.parse(line);
+                } catch (error) {
+                    return null;
+                }
+            })
+            .filter(Boolean)
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        return lines.slice(0, limit);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return [];
+        }
+        throw error;
     }
 }
 

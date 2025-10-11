@@ -80,6 +80,20 @@
             <div id="stats" class="stats" role="status" aria-live="polite"></div>
             <div id="entries" class="entries" aria-live="polite"></div>
         </section>
+
+        <section class="panel panel--log" aria-labelledby="activity-log-title">
+            <div class="panel-header panel-header--log">
+                <div>
+                    <h2 id="activity-log-title">Activity Log</h2>
+                    <p>Track uploads, edits, deletes, and imports in real time.</p>
+                </div>
+                <div class="log-controls">
+                    <button id="refresh-log-btn" class="btn btn-secondary" type="button">Refresh log</button>
+                    <span id="log-status" class="log-status" role="status" aria-live="polite"></span>
+                </div>
+            </div>
+            <ol id="activity-log" class="log-list" aria-live="polite"></ol>
+        </section>
     </main>
 
     <template id="entry-template">
