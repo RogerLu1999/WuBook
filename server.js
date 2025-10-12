@@ -69,6 +69,7 @@ app.post(
             await logAction('create-entry', 'success', {
                 id: entry.id,
                 subject: entry.subject,
+                semester: entry.semester,
                 questionType: entry.questionType,
                 source: entry.source,
                 questionImage: Boolean(entry.questionImageUrl),
@@ -99,6 +100,7 @@ app.put('/api/entries/:id', async (req, res) => {
             ...entries[index],
             source: (req.body.source || '').trim(),
             subject: (req.body.subject || '').trim(),
+            semester: (req.body.semester || '').trim(),
             questionType: (req.body.questionType || '').trim(),
             questionText: (req.body.questionText || '').trim(),
             answerText: (req.body.answerText || '').trim(),
@@ -115,6 +117,7 @@ app.put('/api/entries/:id', async (req, res) => {
         await logAction('update-entry', 'success', {
             id: entries[index].id,
             subject: entries[index].subject,
+            semester: entries[index].semester,
             questionType: entries[index].questionType,
             source: entries[index].source
         });
@@ -149,6 +152,7 @@ app.delete('/api/entries/:id', async (req, res) => {
         await logAction('delete-entry', 'success', {
             id: removed.id,
             subject: removed.subject,
+            semester: removed.semester,
             questionType: removed.questionType,
             source: removed.source
         });
@@ -296,6 +300,7 @@ async function buildEntry(body, files = {}, options = {}) {
         id: body.id && typeof body.id === 'string' ? body.id : randomUUID(),
         source: (body.source || '').trim(),
         subject: (body.subject || '').trim(),
+        semester: (body.semester || '').trim(),
         questionType: (body.questionType || '').trim(),
         questionText: (body.questionText || '').trim(),
         answerText: (body.answerText || '').trim(),
@@ -564,6 +569,7 @@ async function createWordExport(entries) {
         const metaParts = [];
         if (entry.subject) metaParts.push(`学科：${entry.subject}`);
         if (entry.questionType) metaParts.push(`题目类型：${entry.questionType}`);
+        if (entry.semester) metaParts.push(`学期：${entry.semester}`);
         if (entry.source) metaParts.push(`来源：${entry.source}`);
         metaParts.push(`创建日期：${formatDateOnly(entry.createdAt)}`);
         children.push(new Paragraph(metaParts.join(' | ')));
