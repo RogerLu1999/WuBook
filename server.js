@@ -707,38 +707,42 @@ async function createPaperExport(entries) {
             new Paragraph({
                 text: headingText,
                 heading: HeadingLevel.HEADING_1,
-                pageBreakBefore: index > 0
+                pageBreakBefore: index > 0,
+                spacing: { before: index > 0 ? 200 : 0 }
             })
         );
 
         const metaParts = [];
+        if (entry.subject) metaParts.push(entry.subject);
+        if (entry.semester) metaParts.push(entry.semester);
+        if (entry.questionType) metaParts.push(entry.questionType);
         if (entry.source) metaParts.push(`来源：${entry.source}`);
         metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
-        children.push(new Paragraph(metaParts.join('    ')));
+        const metaText = `【${metaParts.join(' / ')}】`;
+        children.push(
+            new Paragraph({
+                children: [new TextRun({ text: metaText, italics: true, size: 18 })],
+                spacing: { after: 200 }
+            })
+        );
 
         const hasQuestionText = Boolean(entry.questionText && entry.questionText.trim());
         if (hasQuestionText) {
-            const questionParagraph = createLabeledParagraph('题目内容：', entry.questionText, { skipWhenEmpty: false });
+            const questionParagraph = createPlainParagraph(entry.questionText, { skipWhenEmpty: false, fallback: '（未提供）' });
             if (questionParagraph) {
                 children.push(questionParagraph);
             }
         } else {
             const questionImage = await loadImageForDoc(doc, entry.questionImageResizedUrl || entry.questionImageUrl);
             if (questionImage) {
-                children.push(new Paragraph({ children: [new TextRun({ text: '题目图片：', bold: true })] }));
                 children.push(new Paragraph({ children: [questionImage] }));
             } else {
-                const fallbackParagraph = createLabeledParagraph('题目内容：', '', {
-                    skipWhenEmpty: false,
-                    fallback: '（未提供）'
-                });
+                const fallbackParagraph = createPlainParagraph('', { skipWhenEmpty: false, fallback: '（未提供）' });
                 if (fallbackParagraph) {
                     children.push(fallbackParagraph);
                 }
             }
         }
-
-        children.push(new Paragraph({ text: '' }));
     }
 
     doc.addSection({ children });
@@ -791,6 +795,27 @@ function createLabeledParagraph(label, text, options = {}) {
             runs.push(new TextRun({ break: 1 }));
             runs.push(new TextRun({ text: line }));
         }
+    });
+
+    return new Paragraph({ children: runs });
+}
+
+function createPlainParagraph(text, options = {}) {
+    const { skipWhenEmpty = false, fallback = '（未填写）' } = options;
+    const value = typeof text === 'string' ? text.trim() : '';
+    if (!value && skipWhenEmpty) {
+        return null;
+    }
+
+    const display = value || fallback;
+    const lines = String(display).split(/\r?\n/);
+    const runs = [];
+
+    lines.forEach((line, index) => {
+        if (index > 0) {
+            runs.push(new TextRun({ break: 1 }));
+        }
+        runs.push(new TextRun({ text: line }));
     });
 
     return new Paragraph({ children: runs });
