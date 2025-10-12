@@ -2,11 +2,19 @@ const state = {
     entries: [],
     filters: {
         search: '',
-        type: ''
+        type: '',
+        subject: '',
+        semester: '',
+        source: '',
+        errorReason: '',
+        dateStart: '',
+        dateEnd: ''
     },
     logs: [],
     selectedIds: new Set()
 };
+
+const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
 
 const entryForm = document.getElementById('entry-form');
 const importInput = document.getElementById('import-input');
@@ -16,6 +24,12 @@ const entriesContainer = document.getElementById('entries');
 const statsEl = document.getElementById('stats');
 const searchInput = document.getElementById('search');
 const typeFilter = document.getElementById('type-filter');
+const subjectFilter = document.getElementById('subject-filter');
+const semesterFilter = document.getElementById('semester-filter');
+const sourceFilter = document.getElementById('source-filter');
+const errorReasonFilter = document.getElementById('error-reason-filter');
+const dateStartInput = document.getElementById('date-start');
+const dateEndInput = document.getElementById('date-end');
 const createdAtInput = document.getElementById('created-at');
 const entryTemplate = document.getElementById('entry-template');
 const editDialog = document.getElementById('edit-dialog');
@@ -27,6 +41,14 @@ const logStatusEl = document.getElementById('log-status');
 const selectFilteredBtn = document.getElementById('select-filtered-btn');
 const clearSelectionBtn = document.getElementById('clear-selection-btn');
 const selectionStatusEl = document.getElementById('selection-status');
+const entryPanel = document.getElementById('entry-panel');
+const logPanel = document.getElementById('log-panel');
+const layoutEl = document.getElementById('layout');
+const openEntryPanelLink = document.getElementById('open-entry-panel');
+const closeEntryPanelLink = document.getElementById('close-entry-panel');
+const openLogPanelLink = document.getElementById('open-log-panel');
+const closeLogPanelLink = document.getElementById('close-log-panel');
+const mathShortcutLink = document.getElementById('math-shortcut');
 
 let exportInProgress = false;
 
@@ -34,6 +56,8 @@ let logStatusTimeout;
 let logLoading = false;
 
 setCreatedAtDefaultValue();
+hideEntryPanel({ scroll: false });
+hideLogPanel({ scroll: false });
 
 init();
 
@@ -84,6 +108,8 @@ entryForm.addEventListener('submit', async (event) => {
         entryForm.reset();
         setCreatedAtDefaultValue();
         render();
+        hideEntryPanel();
+        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         loadActivityLog();
     } catch (error) {
         console.error(error);
@@ -92,16 +118,73 @@ entryForm.addEventListener('submit', async (event) => {
     }
 });
 
-searchInput.addEventListener('input', (event) => {
+searchInput?.addEventListener('input', (event) => {
     state.filters.search = event.target.value.toLowerCase();
-    const filtered = renderEntries();
-    updateSelectionUI(filtered);
+    applyFilters();
 });
 
-typeFilter.addEventListener('change', (event) => {
+typeFilter?.addEventListener('change', (event) => {
     state.filters.type = event.target.value;
-    const filtered = renderEntries();
-    updateSelectionUI(filtered);
+    applyFilters();
+});
+
+subjectFilter?.addEventListener('change', (event) => {
+    state.filters.subject = event.target.value;
+    applyFilters();
+});
+
+semesterFilter?.addEventListener('change', (event) => {
+    state.filters.semester = event.target.value;
+    applyFilters();
+});
+
+sourceFilter?.addEventListener('change', (event) => {
+    state.filters.source = event.target.value;
+    applyFilters();
+});
+
+errorReasonFilter?.addEventListener('change', (event) => {
+    state.filters.errorReason = event.target.value;
+    applyFilters();
+});
+
+dateStartInput?.addEventListener('change', (event) => {
+    state.filters.dateStart = event.target.value;
+    applyFilters();
+});
+
+dateEndInput?.addEventListener('change', (event) => {
+    state.filters.dateEnd = event.target.value;
+    applyFilters();
+});
+
+mathShortcutLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    if (subjectFilter) {
+        subjectFilter.value = '数学';
+    }
+    state.filters.subject = '数学';
+    applyFilters();
+});
+
+openEntryPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    showEntryPanel();
+});
+
+closeEntryPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    hideEntryPanel();
+});
+
+openLogPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    showLogPanel();
+});
+
+closeLogPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    hideLogPanel();
 });
 
 exportBtn.addEventListener('click', async () => {
@@ -353,10 +436,15 @@ refreshLogBtn?.addEventListener('click', () => {
 
 function render() {
     pruneSelection();
-    populateTypeFilter();
+    populateFilterOptions();
     const filtered = renderEntries();
     renderStats();
     renderActivityLog();
+    updateSelectionUI(filtered);
+}
+
+function applyFilters() {
+    const filtered = renderEntries();
     updateSelectionUI(filtered);
 }
 
@@ -541,24 +629,83 @@ function renderStats() {
     `;
 }
 
-function populateTypeFilter() {
-    const current = typeFilter.value;
-    typeFilter.innerHTML = '<option value="">全部</option>';
-    const types = Array.from(new Set(state.entries.map((entry) => entry.questionType))).filter(Boolean).sort();
-    for (const type of types) {
+function populateFilterOptions() {
+    populateSelect(typeFilter, state.entries.map((entry) => entry.questionType), 'type');
+    const subjects = state.entries.map((entry) => entry.subject);
+    subjects.push('数学');
+    populateSelect(subjectFilter, subjects, 'subject');
+    populateSelect(semesterFilter, state.entries.map((entry) => entry.semester), 'semester');
+    populateSelect(sourceFilter, state.entries.map((entry) => entry.source), 'source');
+    populateSelect(errorReasonFilter, state.entries.map((entry) => entry.errorReason), 'errorReason');
+}
+
+function populateSelect(selectElement, values, filterKey) {
+    if (!selectElement) return;
+
+    const currentValue = selectElement.value;
+    const desiredValue = filterKey ? state.filters[filterKey] : currentValue;
+    const normalizedValues = values
+        .map((value) => (value ?? '').toString().trim())
+        .filter(Boolean);
+    const uniqueValues = Array.from(new Set(normalizedValues)).sort((a, b) => collator.compare(a, b));
+
+    selectElement.innerHTML = '<option value="">全部</option>';
+    for (const value of uniqueValues) {
         const option = document.createElement('option');
-        option.value = type;
-        option.textContent = type;
-        if (type === current) option.selected = true;
-        typeFilter.append(option);
+        option.value = value;
+        option.textContent = value;
+        selectElement.append(option);
+    }
+
+    const activeValue = desiredValue && uniqueValues.includes(desiredValue) ? desiredValue : null;
+
+    if (activeValue) {
+        selectElement.value = activeValue;
+        if (filterKey) {
+            state.filters[filterKey] = activeValue;
+        }
+    } else {
+        selectElement.value = '';
+        if (filterKey) {
+            state.filters[filterKey] = '';
+        }
     }
 }
 
 function filteredEntries() {
+    const {
+        search,
+        type,
+        subject,
+        semester,
+        source,
+        errorReason,
+        dateStart,
+        dateEnd
+    } = state.filters;
+
+    const startDate = dateStart ? new Date(dateStart) : null;
+    const endDate = dateEnd ? new Date(dateEnd) : null;
+    if (endDate) {
+        endDate.setDate(endDate.getDate() + 1);
+    }
+
     return state.entries
         .filter((entry) => {
-            if (state.filters.type && entry.questionType !== state.filters.type) return false;
-            if (!state.filters.search) return true;
+            if (type && entry.questionType !== type) return false;
+            if (subject && entry.subject !== subject) return false;
+            if (semester && entry.semester !== semester) return false;
+            if (source && entry.source !== source) return false;
+            if (errorReason && entry.errorReason !== errorReason) return false;
+
+            if (startDate || endDate) {
+                const createdAt = entry.createdAt ? new Date(entry.createdAt) : null;
+                if (startDate && (!createdAt || createdAt < startDate)) return false;
+                if (endDate && (!createdAt || createdAt >= endDate)) return false;
+            }
+
+            if (!search) return true;
+
             const haystack = [
                 entry.subject,
                 entry.questionType,
@@ -570,7 +717,7 @@ function filteredEntries() {
             ]
                 .join(' ')
                 .toLowerCase();
-            return haystack.includes(state.filters.search);
+            return haystack.includes(search);
         })
         .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
@@ -634,6 +781,47 @@ function updateSelectionUI(filtered = null) {
         const hasFiltered = filteredEntriesList.length > 0;
         const allFilteredSelected = hasFiltered && filteredEntriesList.every((entry) => state.selectedIds.has(entry.id));
         selectFilteredBtn.disabled = !hasFiltered || allFilteredSelected || exportInProgress;
+    }
+}
+
+function showEntryPanel() {
+    if (!entryPanel) return;
+    layoutEl?.classList.add('layout--entry-open');
+    if (!entryPanel.hidden) return;
+    entryPanel.hidden = false;
+    openEntryPanelLink?.setAttribute('aria-expanded', 'true');
+    setCreatedAtDefaultValue();
+    entryPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('source')?.focus();
+}
+
+function hideEntryPanel(options = {}) {
+    if (!entryPanel) return;
+    openEntryPanelLink?.setAttribute('aria-expanded', 'false');
+    layoutEl?.classList.remove('layout--entry-open');
+    if (entryPanel.hidden) return;
+    entryPanel.hidden = true;
+    if (options.scroll !== false) {
+        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function showLogPanel() {
+    if (!logPanel) return;
+    if (!logPanel.hidden) return;
+    logPanel.hidden = false;
+    openLogPanelLink?.setAttribute('aria-expanded', 'true');
+    logPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    loadActivityLog({ userRequested: true });
+}
+
+function hideLogPanel(options = {}) {
+    if (!logPanel) return;
+    openLogPanelLink?.setAttribute('aria-expanded', 'false');
+    if (logPanel.hidden) return;
+    logPanel.hidden = true;
+    if (options.scroll !== false) {
+        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 }
 

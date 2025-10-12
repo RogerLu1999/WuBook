@@ -12,10 +12,13 @@
         <p class="tagline">A light-weight error book to help your child grow through mistakes.</p>
     </header>
 
-    <main class="layout">
-        <section class="panel" aria-labelledby="entry-form-title">
+    <main class="layout" id="layout">
+        <section class="panel" id="entry-panel" aria-labelledby="entry-form-title" hidden>
             <div class="panel-header">
-                <h2 id="entry-form-title">新的错题</h2>
+                <div class="panel-header__top">
+                    <h2 id="entry-form-title">新的错题</h2>
+                    <a href="#" id="close-entry-panel" class="panel-link">返回错题列表</a>
+                </div>
                 <p>Add mistakes as they happen to keep everything organised.</p>
             </div>
             <form id="entry-form" class="form-grid">
@@ -80,7 +83,13 @@
 
         <section class="panel" aria-labelledby="entries-title">
             <div class="panel-header">
-                <h2 id="entries-title">错题库</h2>
+                <div class="panel-header__top">
+                    <h2 id="entries-title">错题库</h2>
+                    <div class="panel-links">
+                        <a href="#" id="open-entry-panel" class="panel-link" aria-controls="entry-panel" aria-expanded="false">新的错题</a>
+                        <a href="#" id="open-log-panel" class="panel-link" aria-controls="log-panel" aria-expanded="false">查看活动日志</a>
+                    </div>
+                </div>
                 <div class="filters">
                     <label>
                         <span>搜索</span>
@@ -92,6 +101,42 @@
                             <option value="">全部</option>
                         </select>
                     </label>
+                    <label>
+                        <span>学科</span>
+                        <select id="subject-filter">
+                            <option value="">全部</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>学期</span>
+                        <select id="semester-filter">
+                            <option value="">全部</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>来源</span>
+                        <select id="source-filter">
+                            <option value="">全部</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>错误原因</span>
+                        <select id="error-reason-filter">
+                            <option value="">全部</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>起始日期</span>
+                        <input type="date" id="date-start" />
+                    </label>
+                    <label>
+                        <span>结束日期</span>
+                        <input type="date" id="date-end" />
+                    </label>
+                    <div class="filters__quick-links" role="group" aria-label="常用筛选">
+                        <span>快捷：</span>
+                        <a href="#" id="math-shortcut" class="filters__quick-link">数学</a>
+                    </div>
                 </div>
             </div>
 
@@ -106,7 +151,7 @@
             <div id="entries" class="entries" aria-live="polite"></div>
         </section>
 
-        <section class="panel panel--log" aria-labelledby="activity-log-title">
+        <section class="panel panel--log" id="log-panel" aria-labelledby="activity-log-title" hidden>
             <div class="panel-header panel-header--log">
                 <div>
                     <h2 id="activity-log-title">Activity Log</h2>
@@ -115,6 +160,7 @@
                 <div class="log-controls">
                     <button id="refresh-log-btn" class="btn btn-secondary" type="button">Refresh log</button>
                     <span id="log-status" class="log-status" role="status" aria-live="polite"></span>
+                    <a href="#" id="close-log-panel" class="panel-link panel-link--muted">返回错题列表</a>
                 </div>
             </div>
             <ol id="activity-log" class="log-list" aria-live="polite"></ol>
