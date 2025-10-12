@@ -4,7 +4,7 @@ const fsp = require('fs/promises');
 const multer = require('multer');
 const sharp = require('sharp');
 const { randomUUID } = require('crypto');
-const { Document, Packer, Paragraph, TextRun, HeadingLevel, Media } = require('docx');
+const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } = require('docx');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -630,9 +630,9 @@ async function loadImageForDoc(doc, url) {
         }
 
         if (width && height) {
-            return Media.addImage(doc, data, width, height);
+            return new ImageRun({ data, transformation: { width, height } });
         }
-        return Media.addImage(doc, data);
+        return new ImageRun({ data });
     } catch (error) {
         console.warn('Unable to load image for Word export', url, error);
         return null;
