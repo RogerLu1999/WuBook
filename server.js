@@ -653,7 +653,7 @@ async function createWordExport(entries) {
         if (entry.semester) metaParts.push(`学期：${entry.semester}`);
         if (entry.source) metaParts.push(`来源：${entry.source}`);
         metaParts.push(`创建日期：${formatDateOnly(entry.createdAt)}`);
-        children.push(new Paragraph(metaParts.join(' | ')));
+        children.push(new Paragraph(`【${metaParts.join(' | ')}】`));
 
         const hasQuestionText = Boolean(entry.questionText && entry.questionText.trim());
         if (hasQuestionText) {
@@ -702,7 +702,7 @@ async function createPaperExport(entries) {
     const children = [];
 
     for (const [index, entry] of entries.entries()) {
-        const headingText = entry.questionCode || `试题 ${index + 1}`;
+        const headingText = `试题 ${index + 1}`;
         children.push(
             new Paragraph({
                 text: headingText,
@@ -713,6 +713,7 @@ async function createPaperExport(entries) {
         );
 
         const metaParts = [];
+        if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
         if (entry.subject) metaParts.push(entry.subject);
         if (entry.semester) metaParts.push(entry.semester);
         if (entry.questionType) metaParts.push(entry.questionType);
