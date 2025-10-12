@@ -1,4 +1,4 @@
-# WuBook triage playbook
+# Wu(悟)Book triage playbook
 
 Use this checklist when "Save Entry" appears to do nothing or when the activity log file is missing.
 
@@ -11,7 +11,7 @@ npm install
 npm start
 ```
 
-You should see `WuBook server running on http://localhost:3000` in the terminal. Keep this process running and, in your browser, visit <http://localhost:3000> (not `file:///.../index.html`). If the server is not running the browser will block the submission and `app.js` will show an alert after logging a network error to the console.
+You should see `Wu(悟)Book server running on http://localhost:3000` in the terminal. Keep this process running and, in your browser, visit <http://localhost:3000> (not `file:///.../index.html`). If the server is not running the browser will block the submission and `app.js` will show an alert after logging a network error to the console.
 
 ## 2. Watch the browser network request
 
@@ -45,8 +45,8 @@ The log file is created on the first action that calls `logAction`—for example
 
 Entries and logs are saved inside the repo’s `data/` folder:
 
-- `data/entries.json` stores the array of entries that populate the UI.
-- `data/activity.log` is appended to by the `logAction` helper.
+- `data/entries.json` stores the array of entries that populate the UI. The file is generated automatically and ignored by Git to avoid conflicts with upstream updates. A sample structure is available in `data/entries.sample.json`.
+- `data/activity.log` is appended to by the `logAction` helper and is also ignored by Git.
 - `data/uploads/` contains uploaded photos.
 
 If `data/activity.log` is missing after you save an entry, verify that the process has write permissions to the repository folder. You can also run a manual test with `curl`:

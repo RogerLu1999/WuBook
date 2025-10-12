@@ -1,6 +1,6 @@
-# WuBook – Personal Error Book
+# Wu(悟)Book – Personal Error Book
 
-WuBook is a lightweight web application designed to help you capture, review, and learn from your child's mistakes in math, physics, and physical exercises. Add detailed notes, attach photos, and keep everything searchable in one place.
+Wu(悟)Book is a lightweight web application designed to help you capture, review, and learn from your child's mistakes in math, physics, and physical exercises. Add detailed notes, attach photos, and keep everything searchable in one place.
 
 ## Features
 
@@ -34,7 +34,7 @@ WuBook is a lightweight web application designed to help you capture, review, an
    npm start
    ```
 
-   You should see `WuBook server running on http://localhost:3000` in the terminal. Leave this process running while you use the app.
+   You should see `Wu(悟)Book server running on http://localhost:3000` in the terminal. Leave this process running while you use the app.
 
 4. In your browser, visit <http://localhost:3000>. **Opening `index.html` directly from the file system bypasses the API and will make the “Save Entry” button appear to do nothing.**
 
@@ -42,13 +42,13 @@ WuBook is a lightweight web application designed to help you capture, review, an
 
 All data lives in the `data/` directory alongside the app:
 
-- `data/entries.json` – JSON array containing every entry.
+- `data/entries.json` – JSON array containing every entry. The file is created on demand and ignored by Git so local practice data never collides with upstream updates. A fresh clone includes `data/entries.sample.json` if you want an example structure.
 - `data/uploads/` – Photo files saved with unique names plus matching `-a4` print-sized copies.
-- `data/activity.log` – One JSON object per line describing each create, update, delete, import, and clear action.
+- `data/activity.log` – One JSON object per line describing each create, update, import, and clear action (also ignored by Git).
 
-A small demo entry is included so you can immediately see how a saved mistake looks in the interface. Feel free to delete or replace it using the app once you're ready to start fresh.
+A small demo entry is available in `data/entries.sample.json` so you can immediately see how a saved mistake looks in the interface. Feel free to delete or replace it using the app once you're ready to start fresh.
 
-To back up or migrate WuBook, copy the entire `data/` folder. The in-app export button also produces a JSON backup that includes embedded photo data, which can be re-imported later on a fresh installation.
+To back up or migrate Wu(悟)Book, copy the entire `data/` folder. The in-app export button also produces a JSON backup that includes embedded photo data, which can be re-imported later on a fresh installation.
 
 ## Troubleshooting "Save Entry"
 
