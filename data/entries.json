@@ -1,17 +1,15 @@
 [
   {
     "id": "seed-entry-001",
-    "subject": "Mathematics",
-    "title": "Long division practice",
-    "description": "Worksheet problem #4 where the remainder step was skipped.",
-    "reason": "Rushed through subtraction and missed the borrow.",
-    "comments": "Slow down and check each subtraction before bringing down the next digit.",
-    "tags": [
-      "division",
-      "careless",
-      "practice"
-    ],
-    "photoUrl": null,
+    "source": "数学练习册",
+    "questionType": "长除法",
+    "questionText": "计算 936 ÷ 6。",
+    "answerText": "正确答案：156。逐步进行除法运算并检查每一步。",
+    "errorReason": "借位时漏写，导致商写错。",
+    "questionImageUrl": null,
+    "questionImageResizedUrl": null,
+    "answerImageUrl": null,
+    "answerImageResizedUrl": null,
     "createdAt": "2024-09-01T10:00:00.000Z",
     "updatedAt": "2024-09-01T10:00:00.000Z"
   }
