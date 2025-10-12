@@ -44,7 +44,6 @@ const clearSelectionBtn = document.getElementById('clear-selection-btn');
 const selectionStatusEl = document.getElementById('selection-status');
 const entryPanel = document.getElementById('entry-panel');
 const logPanel = document.getElementById('log-panel');
-const layoutEl = document.getElementById('layout');
 const openEntryPanelLink = document.getElementById('open-entry-panel');
 const closeEntryPanelLink = document.getElementById('close-entry-panel');
 const openLogPanelLink = document.getElementById('open-log-panel');
@@ -823,7 +822,6 @@ function updateSelectionUI(filtered = null) {
 
 function showEntryPanel() {
     if (!entryPanel) return;
-    layoutEl?.classList.add('layout--entry-open');
     if (!entryPanel.hidden) return;
     entryPanel.hidden = false;
     openEntryPanelLink?.setAttribute('aria-expanded', 'true');
@@ -835,7 +833,6 @@ function showEntryPanel() {
 function hideEntryPanel(options = {}) {
     if (!entryPanel) return;
     openEntryPanelLink?.setAttribute('aria-expanded', 'false');
-    layoutEl?.classList.remove('layout--entry-open');
     if (entryPanel.hidden) return;
     entryPanel.hidden = true;
     if (options.scroll !== false) {
