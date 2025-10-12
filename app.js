@@ -2,7 +2,7 @@ const state = {
     entries: [],
     filters: {
         search: '',
-        subject: ''
+        type: ''
     },
     logs: [],
     selectedIds: new Set()
@@ -15,7 +15,8 @@ const clearBtn = document.getElementById('clear-btn');
 const entriesContainer = document.getElementById('entries');
 const statsEl = document.getElementById('stats');
 const searchInput = document.getElementById('search');
-const subjectFilter = document.getElementById('subject-filter');
+const typeFilter = document.getElementById('type-filter');
+const createdAtInput = document.getElementById('created-at');
 const entryTemplate = document.getElementById('entry-template');
 const editDialog = document.getElementById('edit-dialog');
 const editForm = document.getElementById('edit-form');
@@ -32,11 +33,37 @@ let exportInProgress = false;
 let logStatusTimeout;
 let logLoading = false;
 
+setCreatedAtDefaultValue();
+
 init();
 
 entryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(entryForm);
+
+    const questionText = (formData.get('questionText') || '').toString().trim();
+    const answerText = (formData.get('answerText') || '').toString().trim();
+    const questionImage = formData.get('questionImage');
+    const answerImage = formData.get('answerImage');
+    const hasQuestionImage = questionImage && questionImage.size > 0;
+    const hasAnswerImage = answerImage && answerImage.size > 0;
+
+    if (!questionText && !hasQuestionImage) {
+        alert('请填写题目文字或上传题目图片。');
+        return;
+    }
+
+    if (!answerText && !hasAnswerImage) {
+        alert('请填写答案文字或上传答案图片。');
+        return;
+    }
+
+    formData.set('questionText', questionText);
+    formData.set('answerText', answerText);
+
+    if (!formData.get('createdAt')) {
+        formData.set('createdAt', todayDateValue());
+    }
 
     try {
         const response = await fetch('/api/entries', {
@@ -51,6 +78,7 @@ entryForm.addEventListener('submit', async (event) => {
         const entry = await response.json();
         state.entries.unshift(normalizeEntry(entry));
         entryForm.reset();
+        setCreatedAtDefaultValue();
         render();
         loadActivityLog();
     } catch (error) {
@@ -66,8 +94,8 @@ searchInput.addEventListener('input', (event) => {
     updateSelectionUI(filtered);
 });
 
-subjectFilter.addEventListener('change', (event) => {
-    state.filters.subject = event.target.value;
+typeFilter.addEventListener('change', (event) => {
+    state.filters.type = event.target.value;
     const filtered = renderEntries();
     updateSelectionUI(filtered);
 });
@@ -265,13 +293,27 @@ editDialog.addEventListener('close', () => {
     if (!entry) return;
 
     const payload = {
-        subject: document.getElementById('edit-subject').value.trim(),
-        title: document.getElementById('edit-title').value.trim(),
-        description: document.getElementById('edit-description').value.trim(),
-        reason: document.getElementById('edit-reason').value.trim(),
-        comments: document.getElementById('edit-comments').value.trim(),
-        tags: parseTags(document.getElementById('edit-tags').value)
+        source: document.getElementById('edit-source').value.trim(),
+        questionType: document.getElementById('edit-question-type').value.trim(),
+        createdAt: document.getElementById('edit-created-at').value,
+        errorReason: document.getElementById('edit-error-reason').value.trim(),
+        questionText: document.getElementById('edit-question-text').value.trim(),
+        answerText: document.getElementById('edit-answer-text').value.trim()
     };
+
+    if (!payload.createdAt) {
+        payload.createdAt = entry.createdAt;
+    }
+
+    if (!payload.questionText && !entry.questionImageUrl) {
+        alert('题目需要文字或图片内容。');
+        return;
+    }
+
+    if (!payload.answerText && !entry.answerImageUrl) {
+        alert('答案需要文字或图片内容。');
+        return;
+    }
 
     fetch(`/api/entries/${id}`, {
         method: 'PUT',
@@ -305,7 +347,7 @@ refreshLogBtn?.addEventListener('click', () => {
 
 function render() {
     pruneSelection();
-    populateSubjectFilter();
+    populateTypeFilter();
     const filtered = renderEntries();
     renderStats();
     renderActivityLog();
@@ -322,78 +364,59 @@ function renderEntries() {
         card.dataset.id = entry.id;
         const isSelected = state.selectedIds.has(entry.id);
         card.classList.toggle('entry-card--selected', isSelected);
-        card.querySelector('.entry-title').textContent = entry.title;
-        card.querySelector('.entry-meta').textContent = `${entry.subject} • Last updated ${formatRelativeTime(entry.updatedAt)}`;
-        card.querySelector('.entry-description').textContent = entry.description;
-        card.querySelector('.entry-reason').textContent = `Reason: ${entry.reason}`;
-        card.querySelector('.entry-comments').textContent = entry.comments ? `Notes: ${entry.comments}` : '';
+        card.querySelector('.entry-title').textContent = entry.questionType || '未分类题目';
+        const metaParts = [];
+        if (entry.source) {
+            metaParts.push(`来源：${entry.source}`);
+        }
+        if (entry.createdAt) {
+            metaParts.push(`创建：${formatDateDisplay(entry.createdAt)}`);
+        }
+        metaParts.push(`更新：${formatRelativeTime(entry.updatedAt)}`);
+        card.querySelector('.entry-meta').textContent = metaParts.join(' • ');
+
+        const questionSection = card.querySelector('.entry-section--question');
+        const questionTextEl = card.querySelector('.entry-question-text');
+        const questionFigure = card.querySelector('.entry-question-image');
+        const answerSection = card.querySelector('.entry-section--answer');
+        const answerTextEl = card.querySelector('.entry-answer-text');
+        const answerFigure = card.querySelector('.entry-answer-image');
+        const errorReasonEl = card.querySelector('.entry-error-reason');
+
+        const hasQuestionText = Boolean(entry.questionText);
+        questionTextEl.textContent = entry.questionText || '';
+        questionTextEl.hidden = !hasQuestionText;
+        questionFigure.innerHTML = '';
+        questionFigure.hidden = !entry.questionImageSrc;
+        if (entry.questionImageSrc) {
+            appendImage(questionFigure, entry.questionImageSrc, `题目图片 - ${entry.questionType || entry.source || entry.id}`);
+        }
+        questionSection.hidden = !hasQuestionText && !entry.questionImageSrc;
+
+        const hasAnswerText = Boolean(entry.answerText);
+        answerTextEl.textContent = entry.answerText || '';
+        answerTextEl.hidden = !hasAnswerText;
+        answerFigure.innerHTML = '';
+        answerFigure.hidden = !entry.answerImageSrc;
+        if (entry.answerImageSrc) {
+            appendImage(answerFigure, entry.answerImageSrc, `答案图片 - ${entry.questionType || entry.source || entry.id}`);
+        }
+        answerSection.hidden = !hasAnswerText && !entry.answerImageSrc;
+
+        if (entry.errorReason) {
+            errorReasonEl.textContent = `错误原因：${entry.errorReason}`;
+            errorReasonEl.hidden = false;
+        } else {
+            errorReasonEl.textContent = '';
+            errorReasonEl.hidden = true;
+        }
 
         const selectInput = card.querySelector('.entry-select-input');
         if (selectInput) {
             selectInput.checked = isSelected;
         }
 
-        const tagsEl = card.querySelector('.entry-tags');
-        tagsEl.innerHTML = '';
-        if (entry.tags.length) {
-            for (const tag of entry.tags) {
-                const li = document.createElement('li');
-                li.textContent = tag;
-                tagsEl.append(li);
-            }
-        }
-
-        const photoEl = card.querySelector('.entry-photo');
-        const photoSource = entry.photoSrc || entry.photoUrl;
-        photoEl.innerHTML = '';
-        photoEl.hidden = !photoSource;
-        if (photoSource) {
-            const img = document.createElement('img');
-            img.src = photoSource;
-            img.alt = `Photo for ${entry.title}`;
-            img.loading = 'lazy';
-            img.decoding = 'async';
-            img.addEventListener('error', () => {
-                photoEl.innerHTML = '<p class="photo-error">Photo unavailable. It may not have uploaded correctly.</p>';
-                photoEl.hidden = false;
-            }, { once: true });
-            photoEl.append(img);
-
-            const links = [];
-            if (entry.photoResizedSrc) {
-                const resizedLink = document.createElement('a');
-                resizedLink.href = entry.photoResizedSrc;
-                resizedLink.target = '_blank';
-                resizedLink.rel = 'noopener';
-                resizedLink.download = '';
-                resizedLink.textContent = 'Print-sized copy';
-                links.push(resizedLink);
-            }
-            if (entry.photoOriginalSrc && entry.photoOriginalSrc !== entry.photoResizedSrc) {
-                const originalLink = document.createElement('a');
-                originalLink.href = entry.photoOriginalSrc;
-                originalLink.target = '_blank';
-                originalLink.rel = 'noopener';
-                originalLink.download = '';
-                originalLink.textContent = 'Original photo';
-                links.push(originalLink);
-            }
-
-            if (links.length) {
-                const caption = document.createElement('figcaption');
-                caption.className = 'entry-photo__links';
-                caption.append(...links.reduce((acc, link, index) => {
-                    if (index > 0) {
-                        acc.push(document.createTextNode(' · '));
-                    }
-                    acc.push(link);
-                    return acc;
-                }, []));
-                photoEl.append(caption);
-            }
-        }
-
-        card.querySelector('.entry-timestamp').textContent = `Added ${new Date(entry.createdAt).toLocaleString()}`;
+        card.querySelector('.entry-timestamp').textContent = `创建时间：${new Date(entry.createdAt).toLocaleString()}`;
 
         fragment.append(card);
     }
@@ -405,6 +428,25 @@ function renderEntries() {
     }
 
     return entries;
+}
+
+function appendImage(container, src, alt) {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = alt || '图片';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.addEventListener('error', () => {
+        container.innerHTML = '<p class="photo-error">图片无法加载，可能未正确上传。</p>';
+        container.hidden = false;
+    }, { once: true });
+    container.append(img);
+}
+
+function truncateText(text, limit) {
+    if (!text) return '';
+    if (text.length <= limit) return text;
+    return `${text.slice(0, limit)}…`;
 }
 
 function renderActivityLog() {
@@ -462,40 +504,48 @@ function renderActivityLog() {
 
 function renderStats() {
     const total = state.entries.length;
-    const subjects = new Set(state.entries.map((entry) => entry.subject));
-    const tagCount = new Set(state.entries.flatMap((entry) => entry.tags));
+    const types = new Set(state.entries.map((entry) => entry.questionType).filter(Boolean));
+    const sources = new Set(state.entries.map((entry) => entry.source).filter(Boolean));
 
     if (!total) {
-        statsEl.textContent = 'Nothing recorded yet.';
+        statsEl.textContent = '暂无记录。';
         return;
     }
 
     statsEl.innerHTML = `
-        <span>${total} entr${total === 1 ? 'y' : 'ies'}</span>
-        <span>${subjects.size} subject${subjects.size === 1 ? '' : 's'}</span>
-        <span>${tagCount.size} unique tag${tagCount.size === 1 ? '' : 's'}</span>
+        <span>${total} 条记录</span>
+        <span>${types.size} 种题目类型</span>
+        <span>${sources.size} 个来源</span>
     `;
 }
 
-function populateSubjectFilter() {
-    const current = subjectFilter.value;
-    subjectFilter.innerHTML = '<option value="">All</option>';
-    const subjects = Array.from(new Set(state.entries.map((entry) => entry.subject))).sort();
-    for (const subject of subjects) {
+function populateTypeFilter() {
+    const current = typeFilter.value;
+    typeFilter.innerHTML = '<option value="">全部</option>';
+    const types = Array.from(new Set(state.entries.map((entry) => entry.questionType))).filter(Boolean).sort();
+    for (const type of types) {
         const option = document.createElement('option');
-        option.value = subject;
-        option.textContent = subject;
-        if (subject === current) option.selected = true;
-        subjectFilter.append(option);
+        option.value = type;
+        option.textContent = type;
+        if (type === current) option.selected = true;
+        typeFilter.append(option);
     }
 }
 
 function filteredEntries() {
     return state.entries
         .filter((entry) => {
-            if (state.filters.subject && entry.subject !== state.filters.subject) return false;
+            if (state.filters.type && entry.questionType !== state.filters.type) return false;
             if (!state.filters.search) return true;
-            const haystack = [entry.title, entry.description, entry.reason, entry.comments, entry.tags.join(' ')].join(' ').toLowerCase();
+            const haystack = [
+                entry.questionType,
+                entry.source,
+                entry.questionText,
+                entry.answerText,
+                entry.errorReason
+            ]
+                .join(' ')
+                .toLowerCase();
             return haystack.includes(state.filters.search);
         })
         .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
@@ -549,7 +599,7 @@ function updateSelectionUI(filtered = null) {
 
     if (exportBtn) {
         exportBtn.disabled = !totalSelected || exportInProgress;
-        exportBtn.textContent = exportInProgress ? 'Exporting…' : 'Export Selected';
+        exportBtn.textContent = exportInProgress ? '导出中…' : '导出选中（Word）';
     }
 
     if (clearSelectionBtn) {
@@ -582,12 +632,12 @@ function parseFilenameFromContentDisposition(header) {
 
 function openEditDialog(entry) {
     document.getElementById('edit-id').value = entry.id;
-    document.getElementById('edit-subject').value = entry.subject;
-    document.getElementById('edit-title').value = entry.title;
-    document.getElementById('edit-description').value = entry.description;
-    document.getElementById('edit-reason').value = entry.reason;
-    document.getElementById('edit-comments').value = entry.comments;
-    document.getElementById('edit-tags').value = entry.tags.join(', ');
+    document.getElementById('edit-source').value = entry.source || '';
+    document.getElementById('edit-question-type').value = entry.questionType || '';
+    document.getElementById('edit-created-at').value = toDateInputValue(entry.createdAt);
+    document.getElementById('edit-error-reason').value = entry.errorReason || '';
+    document.getElementById('edit-question-text').value = entry.questionText || '';
+    document.getElementById('edit-answer-text').value = entry.answerText || '';
 
     editDialog.showModal();
 }
@@ -608,11 +658,12 @@ function showSimilarEntries(card, entry) {
         .slice(0, 3);
 
     if (!scores.length) {
-        list.innerHTML = '<li>No similar exercises found yet.</li>';
+        list.innerHTML = '<li>暂无相似题目。</li>';
     } else {
         for (const { item, score } of scores) {
             const li = document.createElement('li');
-            li.innerHTML = `<strong>${item.title}</strong> (${item.subject}) – similarity ${(score * 100).toFixed(0)}%`;
+            const preview = item.questionText ? truncateText(item.questionText, 30) : '无文字题干';
+            li.textContent = `${preview}（${item.questionType || '未分类'}） – 相似度 ${(score * 100).toFixed(0)}%`;
             list.append(li);
         }
     }
@@ -621,7 +672,15 @@ function showSimilarEntries(card, entry) {
 }
 
 function embedding(entry) {
-    const text = [entry.title, entry.description, entry.reason, entry.comments, entry.tags.join(' ')].join(' ').toLowerCase();
+    const text = [
+        entry.questionType,
+        entry.source,
+        entry.questionText,
+        entry.answerText,
+        entry.errorReason
+    ]
+        .join(' ')
+        .toLowerCase();
     const tokens = text.match(/\b[\w']+\b/g) || [];
     const vector = new Map();
     for (const token of tokens) {
@@ -645,12 +704,27 @@ function cosineSimilarity(vecA, vecB) {
     return dot / (magA * magB);
 }
 
-function parseTags(input) {
-    return (input || '')
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-        .map((tag) => tag.toLowerCase());
+function todayDateValue() {
+    return new Date().toISOString().split('T')[0];
+}
+
+function setCreatedAtDefaultValue() {
+    if (!createdAtInput) return;
+    createdAtInput.value = todayDateValue();
+}
+
+function formatDateDisplay(iso) {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toISOString().split('T')[0];
+}
+
+function toDateInputValue(iso) {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toISOString().split('T')[0];
 }
 
 function formatRelativeTime(iso) {
@@ -744,34 +818,34 @@ function formatLogDetails(log) {
 
     switch (log.action) {
         case 'create-entry':
-            return formatSubjectLine(details, { includePhoto: true });
+            return formatEntryLine(details, { includeMedia: true });
         case 'update-entry':
-            return formatSubjectLine(details);
+            return formatEntryLine(details);
         case 'delete-entry':
-            return formatSubjectLine(details);
+            return formatEntryLine(details);
         case 'clear-entries':
             if (typeof details.removed === 'number') {
-                return `Removed ${details.removed} entr${details.removed === 1 ? 'y' : 'ies'}.`;
+                return `已删除 ${details.removed} 条记录。`;
             }
             return '';
         case 'import-entries': {
             const parts = [];
             if (typeof details.added === 'number') {
-                parts.push(`Added ${details.added} new entr${details.added === 1 ? 'y' : 'ies'}`);
+                parts.push(`新增 ${details.added} 条记录`);
             }
             if (typeof details.total === 'number') {
-                parts.push(`Now tracking ${details.total} total entr${details.total === 1 ? 'y' : 'ies'}`);
+                parts.push(`累计 ${details.total} 条记录`);
             }
-            return parts.join('. ');
+            return parts.join('，');
         }
         case 'list-entries':
             if (typeof details.total === 'number') {
-                return `Total entries available: ${details.total}.`;
+                return `当前共有 ${details.total} 条记录。`;
             }
             return '';
         case 'export-entries':
             if (typeof details.count === 'number') {
-                return `Prepared ${details.count} entr${details.count === 1 ? 'y' : 'ies'} for printing.`;
+                return `已准备 ${details.count} 条记录用于导出。`;
             }
             return '';
         default:
@@ -782,15 +856,27 @@ function formatLogDetails(log) {
     }
 }
 
-function formatSubjectLine(details, options = {}) {
+function formatEntryLine(details, options = {}) {
     if (!details) return '';
-    const subject = details.subject ? `Subject: ${details.subject}` : null;
-    const id = details.id ? `ID: ${details.id}` : null;
-    const parts = [subject || id];
-    if (options.includePhoto && typeof details.photo === 'boolean') {
-        parts.push(details.photo ? 'Photo uploaded' : 'No photo');
+    const parts = [];
+    if (details.questionType) {
+        parts.push(`题目类型：${details.questionType}`);
     }
-    return parts.filter(Boolean).join(' • ');
+    if (details.source) {
+        parts.push(`来源：${details.source}`);
+    }
+    if (!parts.length && details.id) {
+        parts.push(`ID: ${details.id}`);
+    }
+    if (options.includeMedia) {
+        if (typeof details.questionImage === 'boolean') {
+            parts.push(details.questionImage ? '题目图片已上传' : '无题目图片');
+        }
+        if (typeof details.answerImage === 'boolean') {
+            parts.push(details.answerImage ? '答案图片已上传' : '无答案图片');
+        }
+    }
+    return parts.join(' • ');
 }
 async function init() {
     try {
@@ -808,28 +894,35 @@ async function init() {
 }
 
 function normalizeEntry(raw) {
-    const photoUrl = raw.photoUrl || null;
-    const photoResizedUrl = raw.photoResizedUrl || null;
-    const previewUrl = photoResizedUrl || photoUrl;
+    const questionImageUrl = raw.questionImageUrl || raw.photoUrl || null;
+    const questionImageResizedUrl = raw.questionImageResizedUrl || raw.photoResizedUrl || null;
+    const questionPreview = questionImageResizedUrl || questionImageUrl;
+    const answerImageUrl = raw.answerImageUrl || null;
+    const answerImageResizedUrl = raw.answerImageResizedUrl || null;
+    const answerPreview = answerImageResizedUrl || answerImageUrl;
     return {
         id: raw.id,
-        subject: raw.subject,
-        title: raw.title,
-        description: raw.description,
-        reason: raw.reason,
-        comments: raw.comments,
-        tags: Array.isArray(raw.tags) ? raw.tags : [],
-        photoUrl,
-        photoResizedUrl,
-        photoSrc: resolvePhotoUrl(previewUrl),
-        photoOriginalSrc: resolvePhotoUrl(photoUrl),
-        photoResizedSrc: resolvePhotoUrl(photoResizedUrl),
+        source: raw.source || '',
+        questionType: raw.questionType || raw.subject || '',
+        questionText: raw.questionText || raw.description || raw.title || '',
+        answerText: raw.answerText || raw.comments || '',
+        errorReason: raw.errorReason || raw.reason || '',
+        questionImageUrl,
+        questionImageResizedUrl,
+        questionImageSrc: resolveMediaUrl(questionPreview),
+        questionImageOriginalSrc: resolveMediaUrl(questionImageUrl),
+        questionImageResizedSrc: resolveMediaUrl(questionImageResizedUrl),
+        answerImageUrl,
+        answerImageResizedUrl,
+        answerImageSrc: resolveMediaUrl(answerPreview),
+        answerImageOriginalSrc: resolveMediaUrl(answerImageUrl),
+        answerImageResizedSrc: resolveMediaUrl(answerImageResizedUrl),
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
     };
 }
 
-function resolvePhotoUrl(url) {
+function resolveMediaUrl(url) {
     if (!url) {
         return null;
     }

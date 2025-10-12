@@ -4,6 +4,7 @@ const fsp = require('fs/promises');
 const multer = require('multer');
 const sharp = require('sharp');
 const { randomUUID } = require('crypto');
+const { Document, Packer, Paragraph, TextRun, HeadingLevel, Media } = require('docx');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,9 +19,6 @@ const MM_PER_INCH = 25.4;
 const A4_WIDTH_MM = 210;
 const PRINT_DPI = 300;
 const TARGET_PRINT_WIDTH_PX = Math.round((A4_WIDTH_MM / MM_PER_INCH) * PRINT_DPI * 0.8);
-const PDF_PAGE_WIDTH = 595.28;
-const PDF_PAGE_HEIGHT = 841.89;
-const PDF_MARGIN = 36;
 
 const uploadStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
@@ -56,24 +54,33 @@ app.get('/api/entries', async (req, res) => {
     }
 });
 
-app.post('/api/entries', upload.single('photo'), async (req, res) => {
-    try {
-        const entry = await buildEntry(req.body, req.file);
-        const entries = await readEntries();
-        entries.unshift(entry);
-        await writeEntries(entries);
-        await logAction('create-entry', 'success', {
-            id: entry.id,
-            subject: entry.subject,
-            photo: Boolean(entry.photoUrl)
-        });
-        res.status(201).json(entry);
-    } catch (error) {
-        console.error(error);
-        await logAction('create-entry', 'error', { message: error.message });
-        res.status(500).json({ error: 'Failed to save entry' });
+app.post(
+    '/api/entries',
+    upload.fields([
+        { name: 'questionImage', maxCount: 1 },
+        { name: 'answerImage', maxCount: 1 }
+    ]),
+    async (req, res) => {
+        try {
+            const entry = await buildEntry(req.body, req.files);
+            const entries = await readEntries();
+            entries.unshift(entry);
+            await writeEntries(entries);
+            await logAction('create-entry', 'success', {
+                id: entry.id,
+                questionType: entry.questionType,
+                source: entry.source,
+                questionImage: Boolean(entry.questionImageUrl),
+                answerImage: Boolean(entry.answerImageUrl)
+            });
+            res.status(201).json(entry);
+        } catch (error) {
+            console.error(error);
+            await logAction('create-entry', 'error', { message: error.message });
+            res.status(500).json({ error: 'Failed to save entry' });
+        }
     }
-});
+);
 
 app.put('/api/entries/:id', async (req, res) => {
     try {
@@ -87,21 +94,26 @@ app.put('/api/entries/:id', async (req, res) => {
             return res.status(404).json({ error: 'Entry not found' });
         }
 
-        entries[index] = {
+        const updatedEntry = {
             ...entries[index],
-            subject: (req.body.subject || '').trim(),
-            title: (req.body.title || '').trim(),
-            description: (req.body.description || '').trim(),
-            reason: (req.body.reason || '').trim(),
-            comments: (req.body.comments || '').trim(),
-            tags: parseTags(req.body.tags),
+            source: (req.body.source || '').trim(),
+            questionType: (req.body.questionType || '').trim(),
+            questionText: (req.body.questionText || '').trim(),
+            answerText: (req.body.answerText || '').trim(),
+            errorReason: (req.body.errorReason || '').trim(),
+            createdAt: normalizeDateInput(req.body.createdAt, entries[index].createdAt),
             updatedAt: new Date().toISOString()
         };
+
+        validateEntryContent(updatedEntry);
+
+        entries[index] = updatedEntry;
 
         await writeEntries(entries);
         await logAction('update-entry', 'success', {
             id: entries[index].id,
-            subject: entries[index].subject
+            questionType: entries[index].questionType,
+            source: entries[index].source
         });
         res.json(entries[index]);
     } catch (error) {
@@ -124,11 +136,17 @@ app.delete('/api/entries/:id', async (req, res) => {
         }
 
         const [removed] = entries.splice(index, 1);
-        await removePhoto(removed.photoUrl, removed.photoResizedUrl);
+        await removeMedia(
+            removed.questionImageUrl,
+            removed.questionImageResizedUrl,
+            removed.answerImageUrl,
+            removed.answerImageResizedUrl
+        );
         await writeEntries(entries);
         await logAction('delete-entry', 'success', {
             id: removed.id,
-            subject: removed.subject
+            questionType: removed.questionType,
+            source: removed.source
         });
         res.status(204).end();
     } catch (error) {
@@ -142,7 +160,12 @@ app.delete('/api/entries', async (req, res) => {
     try {
         const entries = await readEntries();
         for (const entry of entries) {
-            await removePhoto(entry.photoUrl, entry.photoResizedUrl);
+            await removeMedia(
+                entry.questionImageUrl,
+                entry.questionImageResizedUrl,
+                entry.answerImageUrl,
+                entry.answerImageResizedUrl
+            );
         }
         await writeEntries([]);
         await logAction('clear-entries', 'success', { removed: entries.length });
@@ -166,7 +189,13 @@ app.post('/api/entries/import', async (req, res) => {
         let added = 0;
 
         for (const raw of req.body) {
-            if (!raw || !raw.title || !raw.subject) continue;
+            const hasQuestionContent = Boolean(
+                raw?.questionText || raw?.questionImageUrl || raw?.questionImageDataUrl || raw?.questionImage
+            );
+            const hasAnswerContent = Boolean(
+                raw?.answerText || raw?.answerImageUrl || raw?.answerImageDataUrl || raw?.answerImage
+            );
+            if (!raw || !hasQuestionContent || !hasAnswerContent) continue;
             const entry = await buildEntryFromImport(raw);
             if (existingIds.has(entry.id)) continue;
             existing.push(entry);
@@ -212,23 +241,17 @@ app.post('/api/entries/export', async (req, res) => {
             return res.status(404).json({ error: 'Selected entries were not found.' });
         }
 
-        const printablePages = await buildPrintablePages(selectedEntries);
-        if (!printablePages.length) {
-            await logAction('export-entries', 'error', { message: 'No printable photos', requested: selectedEntries.length });
-            return res.status(400).json({ error: 'None of the selected entries have printable photos.' });
-        }
+        const docBuffer = await createWordExport(selectedEntries);
+        const filename = `wubook-selection-${new Date().toISOString().split('T')[0]}.docx`;
 
-        const pdfBuffer = await createPdfFromImages(printablePages);
-        const filename = `wubook-selection-${new Date().toISOString().split('T')[0]}.pdf`;
-
-        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        await logAction('export-entries', 'success', { count: printablePages.length });
-        res.send(pdfBuffer);
+        await logAction('export-entries', 'success', { count: selectedEntries.length });
+        res.send(docBuffer);
     } catch (error) {
         console.error(error);
         await logAction('export-entries', 'error', { message: error.message });
-        res.status(500).json({ error: 'Failed to generate PDF export.' });
+        res.status(500).json({ error: 'Failed to generate Word export.' });
     }
 });
 
@@ -252,73 +275,127 @@ app.listen(PORT, async () => {
     console.log(`WuBook server running on http://localhost:${PORT}`);
 });
 
-async function buildEntry(body, file) {
+async function buildEntry(body, files = {}, options = {}) {
+    const { skipValidation = false } = options;
     const now = new Date().toISOString();
+    const questionFile = Array.isArray(files.questionImage) ? files.questionImage[0] : null;
+    const answerFile = Array.isArray(files.answerImage) ? files.answerImage[0] : null;
+
+    const hasQuestionImageInput = Boolean(
+        questionFile || body.questionImageDataUrl || body.questionImage || body.questionImageUrl
+    );
+    const hasAnswerImageInput = Boolean(
+        answerFile || body.answerImageDataUrl || body.answerImage || body.answerImageUrl
+    );
+
     const entry = {
         id: body.id && typeof body.id === 'string' ? body.id : randomUUID(),
-        subject: (body.subject || '').trim(),
-        title: (body.title || '').trim(),
-        description: (body.description || '').trim(),
-        reason: (body.reason || '').trim(),
-        comments: (body.comments || '').trim(),
-        tags: parseTags(body.tags),
-        photoUrl: null,
-        photoResizedUrl: null,
-        createdAt: body.createdAt || now,
+        source: (body.source || '').trim(),
+        questionType: (body.questionType || '').trim(),
+        questionText: (body.questionText || '').trim(),
+        answerText: (body.answerText || '').trim(),
+        errorReason: (body.errorReason || '').trim(),
+        questionImageUrl: null,
+        questionImageResizedUrl: null,
+        answerImageUrl: null,
+        answerImageResizedUrl: null,
+        createdAt: normalizeDateInput(body.createdAt, now),
         updatedAt: now
     };
-    if (file) {
-        const filePath = file.path || path.join(UPLOADS_DIR, file.filename);
-        const photoInfo = await finalizePhotoStorage(filePath, file.filename);
-        entry.photoUrl = photoInfo.photoUrl;
-        entry.photoResizedUrl = photoInfo.photoResizedUrl;
+
+    if (!entry.questionText && !hasQuestionImageInput) {
+        throw new Error('题目内容需要文字或图片。');
+    }
+
+    if (!entry.answerText && !hasAnswerImageInput) {
+        throw new Error('答案内容需要文字或图片。');
+    }
+
+    if (questionFile) {
+        const filePath = questionFile.path || path.join(UPLOADS_DIR, questionFile.filename);
+        const photoInfo = await finalizePhotoStorage(filePath, questionFile.filename);
+        entry.questionImageUrl = photoInfo.photoUrl;
+        entry.questionImageResizedUrl = photoInfo.photoResizedUrl;
+    }
+
+    if (answerFile) {
+        const filePath = answerFile.path || path.join(UPLOADS_DIR, answerFile.filename);
+        const photoInfo = await finalizePhotoStorage(filePath, answerFile.filename);
+        entry.answerImageUrl = photoInfo.photoUrl;
+        entry.answerImageResizedUrl = photoInfo.photoResizedUrl;
+    }
+
+    entry.questionImageUrl = entry.questionImageUrl || (typeof body.questionImageUrl === 'string' ? body.questionImageUrl : null);
+    entry.questionImageResizedUrl =
+        entry.questionImageResizedUrl || (typeof body.questionImageResizedUrl === 'string' ? body.questionImageResizedUrl : null);
+    entry.answerImageUrl = entry.answerImageUrl || (typeof body.answerImageUrl === 'string' ? body.answerImageUrl : null);
+    entry.answerImageResizedUrl =
+        entry.answerImageResizedUrl || (typeof body.answerImageResizedUrl === 'string' ? body.answerImageResizedUrl : null);
+
+    if (!skipValidation) {
+        validateEntryContent(entry);
     }
 
     return entry;
 }
 
 async function buildEntryFromImport(raw) {
-    const entry = await buildEntry(raw, null);
+    const entry = await buildEntry(raw, {}, { skipValidation: true });
     entry.id = raw.id || entry.id;
-    entry.createdAt = raw.createdAt || entry.createdAt;
+    entry.createdAt = normalizeDateInput(raw.createdAt, entry.createdAt);
     entry.updatedAt = raw.updatedAt || entry.updatedAt;
 
-    if (raw.photoDataUrl && !entry.photoUrl) {
-        const photoInfo = await saveDataUrl(raw.photoDataUrl, entry.id);
-        entry.photoUrl = photoInfo.photoUrl;
-        entry.photoResizedUrl = photoInfo.photoResizedUrl;
-    } else if (raw.photo && !entry.photoUrl) {
-        const photoInfo = await saveDataUrl(raw.photo, entry.id);
-        entry.photoUrl = photoInfo.photoUrl;
-        entry.photoResizedUrl = photoInfo.photoResizedUrl;
-    } else if (raw.photoUrl) {
-        entry.photoUrl = raw.photoUrl;
-        if (raw.photoResizedUrl) {
-            entry.photoResizedUrl = raw.photoResizedUrl;
-        } else if (raw.photoUrl.startsWith('/uploads/')) {
-            const relative = raw.photoUrl.slice(1);
+    if (raw.questionImageDataUrl && !entry.questionImageUrl) {
+        const info = await saveDataUrl(raw.questionImageDataUrl, `${entry.id}-question`);
+        entry.questionImageUrl = info.photoUrl;
+        entry.questionImageResizedUrl = info.photoResizedUrl;
+    } else if (raw.questionImage && !entry.questionImageUrl) {
+        const info = await saveDataUrl(raw.questionImage, `${entry.id}-question`);
+        entry.questionImageUrl = info.photoUrl;
+        entry.questionImageResizedUrl = info.photoResizedUrl;
+    } else if (raw.questionImageUrl) {
+        entry.questionImageUrl = raw.questionImageUrl;
+        if (raw.questionImageResizedUrl) {
+            entry.questionImageResizedUrl = raw.questionImageResizedUrl;
+        } else if (raw.questionImageUrl.startsWith('/uploads/')) {
+            const relative = raw.questionImageUrl.slice(1);
             const sourcePath = path.join(ROOT_DIR, relative);
             try {
                 const resized = await generateResizedVariant(sourcePath);
-                entry.photoResizedUrl = resized;
+                entry.questionImageResizedUrl = resized;
             } catch (error) {
-                console.warn('Unable to regenerate resized photo during import', error);
+                console.warn('Unable to regenerate resized question image during import', error);
             }
         }
     }
 
-    return entry;
-}
-
-function parseTags(raw) {
-    if (Array.isArray(raw)) {
-        return raw.map((tag) => String(tag).trim().toLowerCase()).filter(Boolean);
+    if (raw.answerImageDataUrl && !entry.answerImageUrl) {
+        const info = await saveDataUrl(raw.answerImageDataUrl, `${entry.id}-answer`);
+        entry.answerImageUrl = info.photoUrl;
+        entry.answerImageResizedUrl = info.photoResizedUrl;
+    } else if (raw.answerImage && !entry.answerImageUrl) {
+        const info = await saveDataUrl(raw.answerImage, `${entry.id}-answer`);
+        entry.answerImageUrl = info.photoUrl;
+        entry.answerImageResizedUrl = info.photoResizedUrl;
+    } else if (raw.answerImageUrl) {
+        entry.answerImageUrl = raw.answerImageUrl;
+        if (raw.answerImageResizedUrl) {
+            entry.answerImageResizedUrl = raw.answerImageResizedUrl;
+        } else if (raw.answerImageUrl.startsWith('/uploads/')) {
+            const relative = raw.answerImageUrl.slice(1);
+            const sourcePath = path.join(ROOT_DIR, relative);
+            try {
+                const resized = await generateResizedVariant(sourcePath);
+                entry.answerImageResizedUrl = resized;
+            } catch (error) {
+                console.warn('Unable to regenerate resized answer image during import', error);
+            }
+        }
     }
 
-    return String(raw || '')
-        .split(',')
-        .map((tag) => tag.trim().toLowerCase())
-        .filter(Boolean);
+    validateEntryContent(entry);
+
+    return entry;
 }
 
 async function readEntries() {
@@ -346,16 +423,17 @@ async function ensureDirectories() {
     await fsp.mkdir(UPLOADS_DIR, { recursive: true });
 }
 
-async function removePhoto(photoUrl, photoResizedUrl) {
-    const targets = [photoUrl, photoResizedUrl].filter(Boolean);
-    for (const target of targets) {
+async function removeMedia(...urls) {
+    const targets = urls.flat().filter(Boolean);
+    const uniqueTargets = Array.from(new Set(targets));
+    for (const target of uniqueTargets) {
         const relative = target.startsWith('/') ? target.slice(1) : target;
         const filePath = path.join(ROOT_DIR, relative);
         try {
             await fsp.unlink(filePath);
         } catch (error) {
             if (error.code !== 'ENOENT') {
-                console.warn('Failed to remove photo', error);
+                console.warn('Failed to remove media', error);
             }
         }
     }
@@ -414,49 +492,30 @@ async function generateResizedVariant(filePath) {
     }
 }
 
-async function buildPrintablePages(entries) {
-    const pages = [];
-
-    for (const entry of entries) {
-        const imagePath = await resolvePrintableImage(entry);
-        if (!imagePath) continue;
-
-        try {
-            const { data, info } = await sharp(imagePath)
-                .rotate()
-                .flatten({ background: '#ffffff' })
-                .jpeg({ quality: 95 })
-                .toBuffer({ resolveWithObject: true });
-
-            if (!info.width || !info.height) {
-                continue;
-            }
-
-            pages.push({
-                entry,
-                image: data,
-                width: info.width,
-                height: info.height
-            });
-        } catch (error) {
-            console.warn('Failed to prepare image for PDF export', imagePath, error);
-        }
+function normalizeDateInput(value, fallbackIso) {
+    if (!value) {
+        return fallbackIso || new Date().toISOString();
     }
 
-    return pages;
+    const candidate = typeof value === 'string' ? value : String(value);
+    const date = new Date(candidate);
+    if (Number.isNaN(date.getTime())) {
+        return fallbackIso || new Date().toISOString();
+    }
+    return date.toISOString();
 }
 
-async function resolvePrintableImage(entry) {
-    const candidates = [entry.photoResizedUrl, entry.photoUrl];
+function validateEntryContent(entry) {
+    const hasQuestionContent = Boolean(entry.questionText || entry.questionImageUrl);
+    const hasAnswerContent = Boolean(entry.answerText || entry.answerImageUrl);
 
-    for (const candidate of candidates) {
-        const resolved = await resolveUploadPath(candidate);
-        if (resolved) {
-            return resolved;
-        }
+    if (!hasQuestionContent) {
+        throw new Error('题目内容需要文字或图片。');
     }
 
-    return null;
+    if (!hasAnswerContent) {
+        throw new Error('答案内容需要文字或图片。');
+    }
 }
 
 async function resolveUploadPath(url) {
@@ -480,146 +539,121 @@ async function resolveUploadPath(url) {
         return null;
     }
 }
-
-async function createPdfFromImages(pages) {
-    if (!Array.isArray(pages) || !pages.length) {
-        throw new Error('No pages provided for PDF generation');
+async function createWordExport(entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+        throw new Error('No entries to export');
     }
 
-    const header = Buffer.from('%PDF-1.4\n%âãÏÓ\n');
-    const objects = [];
-    let nextObjectId = 1;
+    const doc = new Document({ sections: [] });
+    const children = [];
 
-    const appendObject = (buffer) => {
-        objects.push(buffer);
-    };
-
-    const createDictionaryObject = (entries) => {
-        const id = nextObjectId++;
-        const parts = Object.entries(entries)
-            .filter(([, value]) => value !== undefined && value !== null)
-            .map(([key, value]) => `/${key} ${value}`)
-            .join(' ');
-        const dict = parts.length ? `<< ${parts} >>\n` : '<< >>\n';
-        appendObject(Buffer.from(`${id} 0 obj\n${dict}endobj\n`));
-        return id;
-    };
-
-    const createStreamObject = (entries, streamBuffer) => {
-        const id = nextObjectId++;
-        const parts = Object.entries(entries)
-            .filter(([, value]) => value !== undefined && value !== null)
-            .map(([key, value]) => `/${key} ${value}`)
-            .join(' ');
-        const dict = parts.length
-            ? `<< ${parts} /Length ${streamBuffer.length} >>\n`
-            : `<< /Length ${streamBuffer.length} >>\n`;
-        appendObject(
-            Buffer.concat([
-                Buffer.from(`${id} 0 obj\n${dict}stream\n`),
-                streamBuffer,
-                Buffer.from('\nendstream\nendobj\n')
-            ])
+    for (const [index, entry] of entries.entries()) {
+        children.push(
+            new Paragraph({
+                text: `条目 ${index + 1}`,
+                heading: HeadingLevel.HEADING_1,
+                pageBreakBefore: index > 0
+            })
         );
-        return id;
-    };
 
-    const pageObjectIds = [];
-    const expectedPagesObjectId = pages.length * 3 + 1;
+        const metaParts = [];
+        if (entry.questionType) metaParts.push(`题目类型：${entry.questionType}`);
+        if (entry.source) metaParts.push(`来源：${entry.source}`);
+        metaParts.push(`创建日期：${formatDateOnly(entry.createdAt)}`);
+        children.push(new Paragraph(metaParts.join(' | ')));
 
-    const availableWidth = PDF_PAGE_WIDTH - PDF_MARGIN * 2;
-    const availableHeight = PDF_PAGE_HEIGHT - PDF_MARGIN * 2;
-
-    pages.forEach((page, index) => {
-        if (!page.width || !page.height) {
-            return;
+        const questionTextParagraph = createLabeledParagraph('题目内容（文字）：', entry.questionText);
+        if (questionTextParagraph) {
+            children.push(questionTextParagraph);
         }
 
-        const imageObjectId = createStreamObject(
-            {
-                Type: '/XObject',
-                Subtype: '/Image',
-                Width: Math.max(1, Math.round(page.width)),
-                Height: Math.max(1, Math.round(page.height)),
-                ColorSpace: '/DeviceRGB',
-                BitsPerComponent: 8,
-                Filter: '/DCTDecode'
-            },
-            page.image
-        );
+        const questionImage = await loadImageForDoc(doc, entry.questionImageResizedUrl || entry.questionImageUrl);
+        if (questionImage) {
+            children.push(new Paragraph({ children: [new TextRun({ text: '题目图片：', bold: true })] }));
+            children.push(new Paragraph({ children: [questionImage] }));
+        }
 
-        const scale = Math.min(availableWidth / page.width, availableHeight / page.height);
-        const renderWidth = page.width * scale;
-        const renderHeight = page.height * scale;
-        const offsetX = PDF_MARGIN + (availableWidth - renderWidth) / 2;
-        const offsetY = PDF_MARGIN + (availableHeight - renderHeight) / 2;
+        const answerTextParagraph = createLabeledParagraph('答案（文字）：', entry.answerText);
+        if (answerTextParagraph) {
+            children.push(answerTextParagraph);
+        }
 
-        const contentCommands = [
-            'q',
-            `${renderWidth.toFixed(2)} 0 0 ${renderHeight.toFixed(2)} ${offsetX.toFixed(2)} ${offsetY.toFixed(2)} cm`,
-            `/Im${index} Do`,
-            'Q',
-            ''
-        ].join('\n');
+        const answerImage = await loadImageForDoc(doc, entry.answerImageResizedUrl || entry.answerImageUrl);
+        if (answerImage) {
+            children.push(new Paragraph({ children: [new TextRun({ text: '答案图片：', bold: true })] }));
+            children.push(new Paragraph({ children: [answerImage] }));
+        }
 
-        const contentObjectId = createStreamObject({}, Buffer.from(contentCommands));
-        const resources = `<< /ProcSet [/PDF /ImageC] /XObject << /Im${index} ${imageObjectId} 0 R >> >>`;
+        const reasonParagraph = createLabeledParagraph('错误原因：', entry.errorReason, { skipWhenEmpty: false });
+        if (reasonParagraph) {
+            children.push(reasonParagraph);
+        }
 
-        const pageObjectId = createDictionaryObject({
-            Type: '/Page',
-            Parent: `${expectedPagesObjectId} 0 R`,
-            MediaBox: `[0 0 ${PDF_PAGE_WIDTH.toFixed(2)} ${PDF_PAGE_HEIGHT.toFixed(2)}]`,
-            Resources: resources,
-            Contents: `${contentObjectId} 0 R`
-        });
-
-        pageObjectIds.push(pageObjectId);
-    });
-
-    if (!pageObjectIds.length) {
-        throw new Error('No valid images available for PDF export');
+        children.push(new Paragraph({ text: '' }));
     }
 
-    const kids = pageObjectIds.map((id) => `${id} 0 R`).join(' ');
-    const pagesObjectId = createDictionaryObject({
-        Type: '/Pages',
-        Count: pageObjectIds.length,
-        Kids: `[${kids}]`
-    });
+    doc.addSection({ children });
 
-    if (pagesObjectId !== expectedPagesObjectId) {
-        throw new Error('PDF object alignment mismatch');
+    return Packer.toBuffer(doc);
+}
+
+async function loadImageForDoc(doc, url) {
+    if (!url) return null;
+    const filePath = await resolveUploadPath(url);
+    if (!filePath) return null;
+
+    try {
+        const { data, info } = await sharp(filePath).rotate().toBuffer({ resolveWithObject: true });
+        let { width, height } = info;
+        if (width && height) {
+            const maxWidth = 600;
+            if (width > maxWidth) {
+                const scale = maxWidth / width;
+                width = Math.round(width * scale);
+                height = Math.round(height * scale);
+            }
+        }
+
+        if (width && height) {
+            return Media.addImage(doc, data, width, height);
+        }
+        return Media.addImage(doc, data);
+    } catch (error) {
+        console.warn('Unable to load image for Word export', url, error);
+        return null;
+    }
+}
+
+function createLabeledParagraph(label, text, options = {}) {
+    const { skipWhenEmpty = false, fallback = '（未填写）' } = options;
+    const value = typeof text === 'string' ? text.trim() : '';
+    if (!value && skipWhenEmpty) {
+        return null;
     }
 
-    const catalogObjectId = createDictionaryObject({
-        Type: '/Catalog',
-        Pages: `${pagesObjectId} 0 R`
+    const display = value || fallback;
+    const lines = String(display).split(/\r?\n/);
+    const runs = [new TextRun({ text: label, bold: true })];
+
+    lines.forEach((line, index) => {
+        if (index === 0) {
+            runs.push(new TextRun({ text: line }));
+        } else {
+            runs.push(new TextRun({ break: 1 }));
+            runs.push(new TextRun({ text: line }));
+        }
     });
 
-    const buffers = [header];
-    const offsets = [0];
-    let offset = header.length;
+    return new Paragraph({ children: runs });
+}
 
-    objects.forEach((buffer) => {
-        offsets.push(offset);
-        buffers.push(buffer);
-        offset += buffer.length;
-    });
-
-    const xrefOffset = offset;
-    const xrefLines = ['xref', `0 ${objects.length + 1}`, '0000000000 65535 f '];
-    for (let index = 1; index <= objects.length; index += 1) {
-        xrefLines.push(`${offsets[index].toString().padStart(10, '0')} 00000 n `);
+function formatDateOnly(value) {
+    if (!value) return '（未填写）';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return '（未填写）';
     }
-    xrefLines.push('');
-    buffers.push(Buffer.from(xrefLines.join('\n')));
-
-    const trailer = Buffer.from(
-        `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObjectId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`
-    );
-    buffers.push(trailer);
-
-    return Buffer.concat(buffers);
+    return date.toISOString().split('T')[0];
 }
 
 function getExtensionFromMime(mime) {
