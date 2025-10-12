@@ -13,75 +13,6 @@
     </header>
 
     <main class="layout" id="layout">
-        <section class="panel" id="entry-panel" aria-labelledby="entry-form-title" hidden>
-            <div class="panel-header">
-                <div class="panel-header__top">
-                    <h2 id="entry-form-title">新的错题</h2>
-                    <a href="#" id="close-entry-panel" class="panel-link">返回错题列表</a>
-                </div>
-                <p>Add mistakes as they happen to keep everything organised.</p>
-            </div>
-            <form id="entry-form" class="form-grid">
-                <label class="field">
-                    <span>来源</span>
-                    <input type="text" id="source" name="source" placeholder="教材、试卷等" />
-                </label>
-                <label class="field">
-                    <span>学科</span>
-                    <input type="text" id="subject" name="subject" list="subject-options" placeholder="数学、英语…" />
-                </label>
-                <label class="field">
-                    <span>学期</span>
-                    <select id="semester" name="semester">
-                        <option value="">请选择</option>
-                        <option value="八上">八上</option>
-                        <option value="八下">八下</option>
-                        <option value="九上">九上</option>
-                        <option value="九下">九下</option>
-                    </select>
-                </label>
-                <label class="field">
-                    <span>题目类型</span>
-                    <input type="text" id="question-type" name="questionType" placeholder="选择题、填空题…" />
-                </label>
-                <label class="field">
-                    <span>创建日期</span>
-                    <input type="date" id="created-at" name="createdAt" />
-                </label>
-                <label class="field field--span-2">
-                    <span>错误原因</span>
-                    <textarea id="error-reason" name="errorReason" rows="2" placeholder="粗心、概念模糊等"></textarea>
-                </label>
-                <label class="field field--span-2">
-                    <span>题目内容（文字）</span>
-                    <textarea id="question-text" name="questionText" rows="3" placeholder="输入题干文本"></textarea>
-                </label>
-                <label class="field">
-                    <span>题目图片</span>
-                    <input type="file" id="question-image" name="questionImage" accept="image/*" />
-                    <small>可上传题干照片。</small>
-                </label>
-                <label class="field field--span-2">
-                    <span>答案（文字）</span>
-                    <textarea id="answer-text" name="answerText" rows="3" placeholder="输入正确答案或解析"></textarea>
-                </label>
-                <label class="field">
-                    <span>答案图片</span>
-                    <input type="file" id="answer-image" name="answerImage" accept="image/*" />
-                    <small>可上传答案照片。</small>
-                </label>
-                <button type="submit" class="btn btn-primary field--span-2">保存</button>
-            </form>
-
-            <div class="panel-footer">
-                <button id="export-btn" class="btn" disabled>导出选中（Word）</button>
-                <button id="export-paper-btn" class="btn btn-secondary" disabled>导出试卷</button>
-                <label class="btn btn-secondary" for="import-input">Import Entries</label>
-                <input type="file" id="import-input" accept="application/json" hidden />
-                <button id="clear-btn" class="btn btn-danger">Clear All</button>
-            </div>
-        </section>
-
         <section class="panel" aria-labelledby="entries-title">
             <div class="panel-header">
                 <div class="panel-header__top">
@@ -150,6 +81,75 @@
                 </div>
             </div>
             <div id="entries" class="entries" aria-live="polite"></div>
+        </section>
+
+        <section class="panel" id="entry-panel" aria-labelledby="entry-form-title" hidden>
+            <div class="panel-header">
+                <div class="panel-header__top">
+                    <h2 id="entry-form-title">新的错题</h2>
+                    <a href="#" id="close-entry-panel" class="panel-link">返回错题列表</a>
+                </div>
+                <p>Add mistakes as they happen to keep everything organised.</p>
+            </div>
+            <form id="entry-form" class="form-grid">
+                <label class="field">
+                    <span>来源</span>
+                    <input type="text" id="source" name="source" placeholder="教材、试卷等" />
+                </label>
+                <label class="field">
+                    <span>学科</span>
+                    <input type="text" id="subject" name="subject" list="subject-options" placeholder="数学、英语…" />
+                </label>
+                <label class="field">
+                    <span>学期</span>
+                    <select id="semester" name="semester">
+                        <option value="">请选择</option>
+                        <option value="八上">八上</option>
+                        <option value="八下">八下</option>
+                        <option value="九上">九上</option>
+                        <option value="九下">九下</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>题目类型</span>
+                    <input type="text" id="question-type" name="questionType" placeholder="选择题、填空题…" />
+                </label>
+                <label class="field">
+                    <span>创建日期</span>
+                    <input type="date" id="created-at" name="createdAt" />
+                </label>
+                <label class="field field--span-2">
+                    <span>错误原因</span>
+                    <textarea id="error-reason" name="errorReason" rows="2" placeholder="粗心、概念模糊等"></textarea>
+                </label>
+                <label class="field field--span-2">
+                    <span>题目内容（文字）</span>
+                    <textarea id="question-text" name="questionText" rows="3" placeholder="输入题干文本"></textarea>
+                </label>
+                <label class="field">
+                    <span>题目图片</span>
+                    <input type="file" id="question-image" name="questionImage" accept="image/*" />
+                    <small>可上传题干照片。</small>
+                </label>
+                <label class="field field--span-2">
+                    <span>答案（文字）</span>
+                    <textarea id="answer-text" name="answerText" rows="3" placeholder="输入正确答案或解析"></textarea>
+                </label>
+                <label class="field">
+                    <span>答案图片</span>
+                    <input type="file" id="answer-image" name="answerImage" accept="image/*" />
+                    <small>可上传答案照片。</small>
+                </label>
+                <button type="submit" class="btn btn-primary field--span-2">保存</button>
+            </form>
+
+            <div class="panel-footer">
+                <button id="export-btn" class="btn" disabled>导出选中（Word）</button>
+                <button id="export-paper-btn" class="btn btn-secondary" disabled>导出试卷</button>
+                <label class="btn btn-secondary" for="import-input">Import Entries</label>
+                <input type="file" id="import-input" accept="application/json" hidden />
+                <button id="clear-btn" class="btn btn-danger">Clear All</button>
+            </div>
         </section>
 
         <section class="panel panel--log" id="log-panel" aria-labelledby="activity-log-title" hidden>
