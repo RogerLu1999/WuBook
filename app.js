@@ -42,6 +42,7 @@ entryForm.addEventListener('submit', async (event) => {
     const formData = new FormData(entryForm);
 
     const subject = (formData.get('subject') || '').toString().trim();
+    const semester = (formData.get('semester') || '').toString().trim();
     const questionText = (formData.get('questionText') || '').toString().trim();
     const answerText = (formData.get('answerText') || '').toString().trim();
     const questionImage = formData.get('questionImage');
@@ -60,6 +61,7 @@ entryForm.addEventListener('submit', async (event) => {
     }
 
     formData.set('subject', subject);
+    formData.set('semester', semester);
     formData.set('questionText', questionText);
     formData.set('answerText', answerText);
 
@@ -297,6 +299,7 @@ editDialog.addEventListener('close', () => {
     const payload = {
         source: document.getElementById('edit-source').value.trim(),
         subject: document.getElementById('edit-subject').value.trim(),
+        semester: document.getElementById('edit-semester').value.trim(),
         questionType: document.getElementById('edit-question-type').value.trim(),
         createdAt: document.getElementById('edit-created-at').value,
         errorReason: document.getElementById('edit-error-reason').value.trim(),
@@ -373,6 +376,9 @@ function renderEntries() {
         const metaParts = [];
         if (entry.subject) {
             metaParts.push(`学科：${entry.subject}`);
+        }
+        if (entry.semester) {
+            metaParts.push(`学期：${entry.semester}`);
         }
         if (entry.questionType) {
             metaParts.push(`题目类型：${entry.questionType}`);
@@ -518,6 +524,7 @@ function renderStats() {
     const total = state.entries.length;
     const types = new Set(state.entries.map((entry) => entry.questionType).filter(Boolean));
     const subjects = new Set(state.entries.map((entry) => entry.subject).filter(Boolean));
+    const semesters = new Set(state.entries.map((entry) => entry.semester).filter(Boolean));
     const sources = new Set(state.entries.map((entry) => entry.source).filter(Boolean));
 
     if (!total) {
@@ -529,6 +536,7 @@ function renderStats() {
         <span>${total} 条记录</span>
         <span>${subjects.size} 个学科</span>
         <span>${types.size} 种题目类型</span>
+        <span>${semesters.size} 个学期</span>
         <span>${sources.size} 个来源</span>
     `;
 }
@@ -554,6 +562,7 @@ function filteredEntries() {
             const haystack = [
                 entry.subject,
                 entry.questionType,
+                entry.semester,
                 entry.source,
                 entry.questionText,
                 entry.answerText,
@@ -649,6 +658,7 @@ function openEditDialog(entry) {
     document.getElementById('edit-id').value = entry.id;
     document.getElementById('edit-source').value = entry.source || '';
     document.getElementById('edit-subject').value = entry.subject || '';
+    document.getElementById('edit-semester').value = entry.semester || '';
     document.getElementById('edit-question-type').value = entry.questionType || '';
     document.getElementById('edit-created-at').value = toDateInputValue(entry.createdAt);
     document.getElementById('edit-error-reason').value = entry.errorReason || '';
@@ -690,6 +700,7 @@ function showSimilarEntries(card, entry) {
 function embedding(entry) {
     const text = [
         entry.subject,
+        entry.semester,
         entry.questionType,
         entry.source,
         entry.questionText,
@@ -879,6 +890,9 @@ function formatEntryLine(details, options = {}) {
     if (details.subject) {
         parts.push(`学科：${details.subject}`);
     }
+    if (details.semester) {
+        parts.push(`学期：${details.semester}`);
+    }
     if (details.questionType) {
         parts.push(`题目类型：${details.questionType}`);
     }
@@ -924,6 +938,7 @@ function normalizeEntry(raw) {
         id: raw.id,
         source: raw.source || '',
         subject: raw.subject || '',
+        semester: raw.semester || '',
         questionType: raw.questionType || raw.subject || '',
         questionText: raw.questionText || raw.description || raw.title || '',
         answerText: raw.answerText || raw.comments || '',
