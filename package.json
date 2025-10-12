@@ -1,7 +1,7 @@
 {
   "name": "wubook",
   "version": "1.0.0",
-  "description": "WuBook error tracker with file-based storage",
+  "description": "Wu(悟)Book error tracker with file-based storage",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {

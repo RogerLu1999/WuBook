@@ -3,25 +3,29 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WuBook - Error Tracker</title>
+    <title>Wu(悟)Book - 错题本</title>
     <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
     <header class="app-header">
-        <h1>WuBook</h1>
+        <h1>Wu(悟)Book</h1>
         <p class="tagline">A light-weight error book to help your child grow through mistakes.</p>
     </header>
 
     <main class="layout">
         <section class="panel" aria-labelledby="entry-form-title">
             <div class="panel-header">
-                <h2 id="entry-form-title">New Entry</h2>
+                <h2 id="entry-form-title">新的错题</h2>
                 <p>Add mistakes as they happen to keep everything organised.</p>
             </div>
             <form id="entry-form" class="form-grid">
                 <label class="field">
                     <span>来源</span>
                     <input type="text" id="source" name="source" placeholder="教材、试卷等" />
+                </label>
+                <label class="field">
+                    <span>学科</span>
+                    <input type="text" id="subject" name="subject" list="subject-options" placeholder="数学、英语…" />
                 </label>
                 <label class="field">
                     <span>题目类型</span>
@@ -66,7 +70,7 @@
 
         <section class="panel" aria-labelledby="entries-title">
             <div class="panel-header">
-                <h2 id="entries-title">Error Library</h2>
+                <h2 id="entries-title">错题库</h2>
                 <div class="filters">
                     <label>
                         <span>搜索</span>
@@ -155,6 +159,10 @@
                 <input type="text" id="edit-source" />
             </label>
             <label class="field">
+                <span>学科</span>
+                <input type="text" id="edit-subject" list="subject-options" />
+            </label>
+            <label class="field">
                 <span>题目类型</span>
                 <input type="text" id="edit-question-type" />
             </label>
@@ -191,6 +199,19 @@
             </menu>
         </form>
     </dialog>
+
+    <datalist id="subject-options">
+        <option value="数学"></option>
+        <option value="英语"></option>
+        <option value="语文"></option>
+        <option value="物理"></option>
+        <option value="化学"></option>
+        <option value="生物"></option>
+        <option value="历史"></option>
+        <option value="地理"></option>
+        <option value="政治"></option>
+        <option value="科学"></option>
+    </datalist>
 
     <script src="app.js" type="module"></script>
 </body>

@@ -41,6 +41,7 @@ entryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(entryForm);
 
+    const subject = (formData.get('subject') || '').toString().trim();
     const questionText = (formData.get('questionText') || '').toString().trim();
     const answerText = (formData.get('answerText') || '').toString().trim();
     const questionImage = formData.get('questionImage');
@@ -58,6 +59,7 @@ entryForm.addEventListener('submit', async (event) => {
         return;
     }
 
+    formData.set('subject', subject);
     formData.set('questionText', questionText);
     formData.set('answerText', answerText);
 
@@ -182,7 +184,7 @@ importInput.addEventListener('change', async (event) => {
         loadActivityLog();
     } catch (error) {
         console.error(error);
-        alert('Failed to import entries. Please ensure the file is a WuBook export.');
+        alert('Failed to import entries. Please ensure the file is a Wu(悟)Book export.');
         loadActivityLog();
     } finally {
         importInput.value = '';
@@ -294,6 +296,7 @@ editDialog.addEventListener('close', () => {
 
     const payload = {
         source: document.getElementById('edit-source').value.trim(),
+        subject: document.getElementById('edit-subject').value.trim(),
         questionType: document.getElementById('edit-question-type').value.trim(),
         createdAt: document.getElementById('edit-created-at').value,
         errorReason: document.getElementById('edit-error-reason').value.trim(),
@@ -364,8 +367,16 @@ function renderEntries() {
         card.dataset.id = entry.id;
         const isSelected = state.selectedIds.has(entry.id);
         card.classList.toggle('entry-card--selected', isSelected);
-        card.querySelector('.entry-title').textContent = entry.questionType || '未分类题目';
+        const titleParts = [entry.subject, entry.questionType].filter(Boolean);
+        const fallbackTitle = entry.subject || entry.questionType || '未分类题目';
+        card.querySelector('.entry-title').textContent = titleParts.join(' · ') || fallbackTitle;
         const metaParts = [];
+        if (entry.subject) {
+            metaParts.push(`学科：${entry.subject}`);
+        }
+        if (entry.questionType) {
+            metaParts.push(`题目类型：${entry.questionType}`);
+        }
         if (entry.source) {
             metaParts.push(`来源：${entry.source}`);
         }
@@ -387,11 +398,12 @@ function renderEntries() {
         questionTextEl.textContent = entry.questionText || '';
         questionTextEl.hidden = !hasQuestionText;
         questionFigure.innerHTML = '';
-        questionFigure.hidden = !entry.questionImageSrc;
-        if (entry.questionImageSrc) {
+        const shouldShowQuestionImage = !hasQuestionText && Boolean(entry.questionImageSrc);
+        questionFigure.hidden = !shouldShowQuestionImage;
+        if (shouldShowQuestionImage) {
             appendImage(questionFigure, entry.questionImageSrc, `题目图片 - ${entry.questionType || entry.source || entry.id}`);
         }
-        questionSection.hidden = !hasQuestionText && !entry.questionImageSrc;
+        questionSection.hidden = !hasQuestionText && !shouldShowQuestionImage;
 
         const hasAnswerText = Boolean(entry.answerText);
         answerTextEl.textContent = entry.answerText || '';
@@ -505,6 +517,7 @@ function renderActivityLog() {
 function renderStats() {
     const total = state.entries.length;
     const types = new Set(state.entries.map((entry) => entry.questionType).filter(Boolean));
+    const subjects = new Set(state.entries.map((entry) => entry.subject).filter(Boolean));
     const sources = new Set(state.entries.map((entry) => entry.source).filter(Boolean));
 
     if (!total) {
@@ -514,6 +527,7 @@ function renderStats() {
 
     statsEl.innerHTML = `
         <span>${total} 条记录</span>
+        <span>${subjects.size} 个学科</span>
         <span>${types.size} 种题目类型</span>
         <span>${sources.size} 个来源</span>
     `;
@@ -538,6 +552,7 @@ function filteredEntries() {
             if (state.filters.type && entry.questionType !== state.filters.type) return false;
             if (!state.filters.search) return true;
             const haystack = [
+                entry.subject,
                 entry.questionType,
                 entry.source,
                 entry.questionText,
@@ -633,6 +648,7 @@ function parseFilenameFromContentDisposition(header) {
 function openEditDialog(entry) {
     document.getElementById('edit-id').value = entry.id;
     document.getElementById('edit-source').value = entry.source || '';
+    document.getElementById('edit-subject').value = entry.subject || '';
     document.getElementById('edit-question-type').value = entry.questionType || '';
     document.getElementById('edit-created-at').value = toDateInputValue(entry.createdAt);
     document.getElementById('edit-error-reason').value = entry.errorReason || '';
@@ -673,6 +689,7 @@ function showSimilarEntries(card, entry) {
 
 function embedding(entry) {
     const text = [
+        entry.subject,
         entry.questionType,
         entry.source,
         entry.questionText,
@@ -859,6 +876,9 @@ function formatLogDetails(log) {
 function formatEntryLine(details, options = {}) {
     if (!details) return '';
     const parts = [];
+    if (details.subject) {
+        parts.push(`学科：${details.subject}`);
+    }
     if (details.questionType) {
         parts.push(`题目类型：${details.questionType}`);
     }
@@ -903,6 +923,7 @@ function normalizeEntry(raw) {
     return {
         id: raw.id,
         source: raw.source || '',
+        subject: raw.subject || '',
         questionType: raw.questionType || raw.subject || '',
         questionText: raw.questionText || raw.description || raw.title || '',
         answerText: raw.answerText || raw.comments || '',

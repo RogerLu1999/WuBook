@@ -68,6 +68,7 @@ app.post(
             await writeEntries(entries);
             await logAction('create-entry', 'success', {
                 id: entry.id,
+                subject: entry.subject,
                 questionType: entry.questionType,
                 source: entry.source,
                 questionImage: Boolean(entry.questionImageUrl),
@@ -97,6 +98,7 @@ app.put('/api/entries/:id', async (req, res) => {
         const updatedEntry = {
             ...entries[index],
             source: (req.body.source || '').trim(),
+            subject: (req.body.subject || '').trim(),
             questionType: (req.body.questionType || '').trim(),
             questionText: (req.body.questionText || '').trim(),
             answerText: (req.body.answerText || '').trim(),
@@ -112,6 +114,7 @@ app.put('/api/entries/:id', async (req, res) => {
         await writeEntries(entries);
         await logAction('update-entry', 'success', {
             id: entries[index].id,
+            subject: entries[index].subject,
             questionType: entries[index].questionType,
             source: entries[index].source
         });
@@ -145,6 +148,7 @@ app.delete('/api/entries/:id', async (req, res) => {
         await writeEntries(entries);
         await logAction('delete-entry', 'success', {
             id: removed.id,
+            subject: removed.subject,
             questionType: removed.questionType,
             source: removed.source
         });
@@ -272,7 +276,7 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, async () => {
     await ensureDirectories();
-    console.log(`WuBook server running on http://localhost:${PORT}`);
+    console.log(`Wu(悟)Book server running on http://localhost:${PORT}`);
 });
 
 async function buildEntry(body, files = {}, options = {}) {
@@ -291,6 +295,7 @@ async function buildEntry(body, files = {}, options = {}) {
     const entry = {
         id: body.id && typeof body.id === 'string' ? body.id : randomUUID(),
         source: (body.source || '').trim(),
+        subject: (body.subject || '').trim(),
         questionType: (body.questionType || '').trim(),
         questionText: (body.questionText || '').trim(),
         answerText: (body.answerText || '').trim(),
@@ -557,20 +562,24 @@ async function createWordExport(entries) {
         );
 
         const metaParts = [];
+        if (entry.subject) metaParts.push(`学科：${entry.subject}`);
         if (entry.questionType) metaParts.push(`题目类型：${entry.questionType}`);
         if (entry.source) metaParts.push(`来源：${entry.source}`);
         metaParts.push(`创建日期：${formatDateOnly(entry.createdAt)}`);
         children.push(new Paragraph(metaParts.join(' | ')));
 
-        const questionTextParagraph = createLabeledParagraph('题目内容（文字）：', entry.questionText);
-        if (questionTextParagraph) {
-            children.push(questionTextParagraph);
-        }
-
-        const questionImage = await loadImageForDoc(doc, entry.questionImageResizedUrl || entry.questionImageUrl);
-        if (questionImage) {
-            children.push(new Paragraph({ children: [new TextRun({ text: '题目图片：', bold: true })] }));
-            children.push(new Paragraph({ children: [questionImage] }));
+        const hasQuestionText = Boolean(entry.questionText && entry.questionText.trim());
+        if (hasQuestionText) {
+            const questionTextParagraph = createLabeledParagraph('题目内容（文字）：', entry.questionText);
+            if (questionTextParagraph) {
+                children.push(questionTextParagraph);
+            }
+        } else {
+            const questionImage = await loadImageForDoc(doc, entry.questionImageResizedUrl || entry.questionImageUrl);
+            if (questionImage) {
+                children.push(new Paragraph({ children: [new TextRun({ text: '题目图片：', bold: true })] }));
+                children.push(new Paragraph({ children: [questionImage] }));
+            }
         }
 
         const answerTextParagraph = createLabeledParagraph('答案（文字）：', entry.answerText);
