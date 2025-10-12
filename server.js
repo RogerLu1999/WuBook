@@ -20,6 +20,32 @@ const A4_WIDTH_MM = 210;
 const PRINT_DPI = 300;
 const TARGET_PRINT_WIDTH_PX = Math.round((A4_WIDTH_MM / MM_PER_INCH) * PRINT_DPI * 0.8);
 
+const SUBJECT_PREFIX_MAP = new Map([
+    ['数学', 'M'],
+    ['英语', 'E'],
+    ['语文', 'C'],
+    ['物理', 'P'],
+    ['化学', 'H'],
+    ['生物', 'B'],
+    ['历史', 'L'],
+    ['地理', 'G'],
+    ['政治', 'Z'],
+    ['科学', 'S'],
+    ['数学(M)', 'M'],
+    ['数学（M）', 'M'],
+    ['数学-竞赛', 'M'],
+    ['English', 'E'],
+    ['Math', 'M'],
+    ['Chinese', 'C'],
+    ['Physics', 'P'],
+    ['Chemistry', 'H'],
+    ['Biology', 'B'],
+    ['History', 'L'],
+    ['Geography', 'G'],
+    ['Politics', 'Z'],
+    ['Science', 'S']
+]);
+
 const uploadStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
         try {
@@ -62,12 +88,14 @@ app.post(
     ]),
     async (req, res) => {
         try {
-            const entry = await buildEntry(req.body, req.files);
             const entries = await readEntries();
+            const entry = await buildEntry(req.body, req.files);
+            assignQuestionCode(entry, entries);
             entries.unshift(entry);
             await writeEntries(entries);
             await logAction('create-entry', 'success', {
                 id: entry.id,
+                questionCode: entry.questionCode,
                 subject: entry.subject,
                 semester: entry.semester,
                 questionType: entry.questionType,
@@ -111,11 +139,14 @@ app.put('/api/entries/:id', async (req, res) => {
 
         validateEntryContent(updatedEntry);
 
+        assignQuestionCode(updatedEntry, entries.filter((_, itemIndex) => itemIndex !== index));
+
         entries[index] = updatedEntry;
 
         await writeEntries(entries);
         await logAction('update-entry', 'success', {
             id: entries[index].id,
+            questionCode: entries[index].questionCode,
             subject: entries[index].subject,
             semester: entries[index].semester,
             questionType: entries[index].questionType,
@@ -151,6 +182,7 @@ app.delete('/api/entries/:id', async (req, res) => {
         await writeEntries(entries);
         await logAction('delete-entry', 'success', {
             id: removed.id,
+            questionCode: removed.questionCode,
             subject: removed.subject,
             semester: removed.semester,
             questionType: removed.questionType,
@@ -206,11 +238,13 @@ app.post('/api/entries/import', async (req, res) => {
             if (!raw || !hasQuestionContent || !hasAnswerContent) continue;
             const entry = await buildEntryFromImport(raw);
             if (existingIds.has(entry.id)) continue;
+            assignQuestionCode(entry, existing);
             existing.push(entry);
             existingIds.add(entry.id);
             added += 1;
         }
 
+        ensureQuestionCodes(existing);
         await writeEntries(existing);
         await logAction('import-entries', 'success', { added, total: existing.length });
         res.json({ added, entries: existing });
@@ -263,6 +297,48 @@ app.post('/api/entries/export', async (req, res) => {
     }
 });
 
+app.post('/api/entries/export-paper', async (req, res) => {
+    try {
+        const ids = Array.isArray(req.body?.ids) ? req.body.ids : null;
+        if (!ids || !ids.length) {
+            await logAction('export-paper', 'error', { message: 'No selection provided' });
+            return res.status(400).json({ error: 'Select at least one entry to export.' });
+        }
+
+        const entries = await readEntries();
+        const entryMap = new Map(entries.map((entry) => [entry.id, entry]));
+        const seen = new Set();
+        const selectedEntries = [];
+
+        for (const rawId of ids) {
+            if (typeof rawId !== 'string') continue;
+            if (seen.has(rawId)) continue;
+            seen.add(rawId);
+            const entry = entryMap.get(rawId);
+            if (entry) {
+                selectedEntries.push(entry);
+            }
+        }
+
+        if (!selectedEntries.length) {
+            await logAction('export-paper', 'error', { message: 'Entries not found', requested: ids.length });
+            return res.status(404).json({ error: 'Selected entries were not found.' });
+        }
+
+        const docBuffer = await createPaperExport(selectedEntries);
+        const filename = `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`;
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        await logAction('export-paper', 'success', { count: selectedEntries.length });
+        res.send(docBuffer);
+    } catch (error) {
+        console.error(error);
+        await logAction('export-paper', 'error', { message: error.message });
+        res.status(500).json({ error: 'Failed to generate paper export.' });
+    }
+});
+
 app.get('/api/logs', async (req, res) => {
     try {
         const limit = Number.parseInt(req.query.limit, 10) || 50;
@@ -298,6 +374,7 @@ async function buildEntry(body, files = {}, options = {}) {
 
     const entry = {
         id: body.id && typeof body.id === 'string' ? body.id : randomUUID(),
+        questionCode: typeof body.questionCode === 'string' ? body.questionCode.trim().toUpperCase() : '',
         source: (body.source || '').trim(),
         subject: (body.subject || '').trim(),
         semester: (body.semester || '').trim(),
@@ -414,6 +491,9 @@ async function readEntries() {
         const data = await fsp.readFile(ENTRIES_FILE, 'utf8');
         const parsed = JSON.parse(data);
         if (!Array.isArray(parsed)) return [];
+        if (ensureQuestionCodes(parsed)) {
+            await writeEntries(parsed);
+        }
         return parsed;
     } catch (error) {
         if (error.code === 'ENOENT') {
@@ -567,6 +647,7 @@ async function createWordExport(entries) {
         );
 
         const metaParts = [];
+        if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
         if (entry.subject) metaParts.push(`学科：${entry.subject}`);
         if (entry.questionType) metaParts.push(`题目类型：${entry.questionType}`);
         if (entry.semester) metaParts.push(`学期：${entry.semester}`);
@@ -602,6 +683,59 @@ async function createWordExport(entries) {
         const reasonParagraph = createLabeledParagraph('错误原因：', entry.errorReason, { skipWhenEmpty: false });
         if (reasonParagraph) {
             children.push(reasonParagraph);
+        }
+
+        children.push(new Paragraph({ text: '' }));
+    }
+
+    doc.addSection({ children });
+
+    return Packer.toBuffer(doc);
+}
+
+async function createPaperExport(entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+        throw new Error('No entries to export');
+    }
+
+    const doc = new Document({ sections: [] });
+    const children = [];
+
+    for (const [index, entry] of entries.entries()) {
+        const headingText = entry.questionCode || `试题 ${index + 1}`;
+        children.push(
+            new Paragraph({
+                text: headingText,
+                heading: HeadingLevel.HEADING_1,
+                pageBreakBefore: index > 0
+            })
+        );
+
+        const metaParts = [];
+        if (entry.source) metaParts.push(`来源：${entry.source}`);
+        metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
+        children.push(new Paragraph(metaParts.join('    ')));
+
+        const hasQuestionText = Boolean(entry.questionText && entry.questionText.trim());
+        if (hasQuestionText) {
+            const questionParagraph = createLabeledParagraph('题目内容：', entry.questionText, { skipWhenEmpty: false });
+            if (questionParagraph) {
+                children.push(questionParagraph);
+            }
+        } else {
+            const questionImage = await loadImageForDoc(doc, entry.questionImageResizedUrl || entry.questionImageUrl);
+            if (questionImage) {
+                children.push(new Paragraph({ children: [new TextRun({ text: '题目图片：', bold: true })] }));
+                children.push(new Paragraph({ children: [questionImage] }));
+            } else {
+                const fallbackParagraph = createLabeledParagraph('题目内容：', '', {
+                    skipWhenEmpty: false,
+                    fallback: '（未提供）'
+                });
+                if (fallbackParagraph) {
+                    children.push(fallbackParagraph);
+                }
+            }
         }
 
         children.push(new Paragraph({ text: '' }));
@@ -669,6 +803,110 @@ function formatDateOnly(value) {
         return '（未填写）';
     }
     return date.toISOString().split('T')[0];
+}
+
+function getSubjectPrefix(subject) {
+    if (!subject) return 'X';
+    const trimmed = subject.trim();
+    if (!trimmed) return 'X';
+    const mapped = SUBJECT_PREFIX_MAP.get(trimmed);
+    if (mapped) return mapped;
+    const asciiMatch = trimmed.match(/[A-Za-z]/);
+    if (asciiMatch) {
+        return asciiMatch[0].toUpperCase();
+    }
+    return 'X';
+}
+
+function parseQuestionCode(code) {
+    if (!code || typeof code !== 'string') return null;
+    const trimmed = code.trim().toUpperCase();
+    const match = /^([A-Z]+)(\d{8})(\d{3,})$/.exec(trimmed);
+    if (!match) return null;
+    const sequence = Number.parseInt(match[3], 10);
+    if (Number.isNaN(sequence)) return null;
+    return {
+        prefix: match[1],
+        datePart: match[2],
+        sequence,
+        code: `${match[1]}${match[2]}${String(sequence).padStart(3, '0')}`
+    };
+}
+
+function formatDateForCode(value) {
+    const formatted = formatDateOnly(value);
+    if (!formatted || formatted === '（未填写）') {
+        return new Date().toISOString().split('T')[0].replace(/-/g, '');
+    }
+    return formatted.replace(/-/g, '');
+}
+
+function getNextSequence(entries, prefix, datePart) {
+    let max = 0;
+    for (const entry of Array.isArray(entries) ? entries : []) {
+        if (!entry || typeof entry !== 'object') continue;
+        const parsed = parseQuestionCode(entry.questionCode);
+        if (parsed && parsed.prefix === prefix && parsed.datePart === datePart) {
+            if (parsed.sequence > max) {
+                max = parsed.sequence;
+            }
+        }
+    }
+    return max + 1;
+}
+
+function assignQuestionCode(entry, entries = []) {
+    if (!entry || typeof entry !== 'object') return null;
+
+    const prefix = getSubjectPrefix(entry.subject || '');
+    const datePart = formatDateForCode(entry.createdAt);
+    const existing = parseQuestionCode(entry.questionCode);
+    const normalizedEntries = Array.isArray(entries) ? entries : [];
+
+    if (existing && existing.prefix === prefix && existing.datePart === datePart) {
+        const conflict = normalizedEntries.some(
+            (item) => item && item.id !== entry.id && item.questionCode === existing.code
+        );
+        if (!conflict) {
+            entry.questionCode = existing.code;
+            return entry.questionCode;
+        }
+    }
+
+    const nextSequence = getNextSequence(normalizedEntries, prefix, datePart);
+    const code = `${prefix}${datePart}${String(nextSequence).padStart(3, '0')}`;
+    entry.questionCode = code;
+    return code;
+}
+
+function ensureQuestionCodes(entries) {
+    if (!Array.isArray(entries) || !entries.length) {
+        return false;
+    }
+
+    let changed = false;
+    const indexed = entries.map((entry, index) => ({ entry, index }));
+    indexed.sort((a, b) => {
+        const aTime = new Date(a.entry?.createdAt || 0).getTime();
+        const bTime = new Date(b.entry?.createdAt || 0).getTime();
+        if (Number.isNaN(aTime) && Number.isNaN(bTime)) return a.index - b.index;
+        if (Number.isNaN(aTime)) return 1;
+        if (Number.isNaN(bTime)) return -1;
+        if (aTime === bTime) return a.index - b.index;
+        return aTime - bTime;
+    });
+
+    for (const { entry, index } of indexed) {
+        if (!entry || typeof entry !== 'object') continue;
+        const previous = entry.questionCode;
+        const others = entries.filter((_, idx) => idx !== index);
+        assignQuestionCode(entry, others);
+        if (entry.questionCode !== previous) {
+            changed = true;
+        }
+    }
+
+    return changed;
 }
 
 function getExtensionFromMime(mime) {
