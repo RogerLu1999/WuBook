@@ -72,6 +72,7 @@
 
             <div class="panel-footer">
                 <button id="export-btn" class="btn" disabled>导出选中（Word）</button>
+                <button id="export-paper-btn" class="btn btn-secondary" disabled>导出试卷</button>
                 <label class="btn btn-secondary" for="import-input">Import Entries</label>
                 <input type="file" id="import-input" accept="application/json" hidden />
                 <button id="clear-btn" class="btn btn-danger">Clear All</button>
@@ -129,6 +130,7 @@
                 </div>
                 <div class="entry-header__details">
                     <h3 class="entry-title"></h3>
+                    <p class="entry-code" hidden></p>
                     <p class="entry-meta"></p>
                 </div>
                 <menu class="entry-actions" aria-label="Entry actions">

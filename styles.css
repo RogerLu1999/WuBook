@@ -378,6 +378,13 @@ select:focus {
     font-size: 1.2rem;
 }
 
+.entry-code {
+    margin: 0;
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 0.95rem;
+}
+
 .entry-meta {
     margin: 0.25rem 0 0;
     color: var(--text-muted);

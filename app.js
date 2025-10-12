@@ -11,6 +11,7 @@ const state = {
 const entryForm = document.getElementById('entry-form');
 const importInput = document.getElementById('import-input');
 const exportBtn = document.getElementById('export-btn');
+const exportPaperBtn = document.getElementById('export-paper-btn');
 const clearBtn = document.getElementById('clear-btn');
 const entriesContainer = document.getElementById('entries');
 const statsEl = document.getElementById('stats');
@@ -28,7 +29,7 @@ const selectFilteredBtn = document.getElementById('select-filtered-btn');
 const clearSelectionBtn = document.getElementById('clear-selection-btn');
 const selectionStatusEl = document.getElementById('selection-status');
 
-let exportInProgress = false;
+let exportInProgress = null;
 
 let logStatusTimeout;
 let logLoading = false;
@@ -105,60 +106,21 @@ typeFilter.addEventListener('change', (event) => {
 });
 
 exportBtn.addEventListener('click', async () => {
-    if (!state.selectedIds.size || exportInProgress) {
-        if (!state.selectedIds.size && !exportInProgress) {
-            alert('Select at least one entry to export.');
-        }
-        return;
-    }
+    await exportSelection({
+        type: 'word',
+        endpoint: '/api/entries/export',
+        fallbackName: `wubook-selection-${new Date().toISOString().split('T')[0]}.docx`,
+        errorMessage: 'Failed to export entries.'
+    });
+});
 
-    exportInProgress = true;
-    updateSelectionUI();
-
-    try {
-        const response = await fetch('/api/entries/export', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ ids: Array.from(state.selectedIds) })
-        });
-
-        if (!response.ok) {
-            let message = 'Failed to export entries.';
-            const contentType = response.headers.get('content-type') || '';
-            try {
-                if (contentType.includes('application/json')) {
-                    const data = await response.json();
-                    if (data?.error) message = data.error;
-                } else {
-                    const text = await response.text();
-                    if (text) message = text;
-                }
-            } catch (error) {
-                console.error('Failed to read export error response', error);
-            }
-            throw new Error(message);
-        }
-
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        const filename = parseFilenameFromContentDisposition(response.headers.get('content-disposition'))
-            || `wubook-selection-${new Date().toISOString().split('T')[0]}.pdf`;
-        link.href = url;
-        link.download = filename;
-        document.body.append(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-    } catch (error) {
-        console.error(error);
-        alert(error.message || 'Failed to export entries.');
-    } finally {
-        exportInProgress = false;
-        updateSelectionUI();
-    }
+exportPaperBtn?.addEventListener('click', async () => {
+    await exportSelection({
+        type: 'paper',
+        endpoint: '/api/entries/export-paper',
+        fallbackName: `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`,
+        errorMessage: 'Failed to export paper.'
+    });
 });
 
 importInput.addEventListener('change', async (event) => {
@@ -373,6 +335,16 @@ function renderEntries() {
         const titleParts = [entry.subject, entry.questionType].filter(Boolean);
         const fallbackTitle = entry.subject || entry.questionType || '未分类题目';
         card.querySelector('.entry-title').textContent = titleParts.join(' · ') || fallbackTitle;
+        const codeEl = card.querySelector('.entry-code');
+        if (codeEl) {
+            if (entry.questionCode) {
+                codeEl.textContent = `编号：${entry.questionCode}`;
+                codeEl.hidden = false;
+            } else {
+                codeEl.textContent = '';
+                codeEl.hidden = true;
+            }
+        }
         const metaParts = [];
         if (entry.subject) {
             metaParts.push(`学科：${entry.subject}`);
@@ -564,6 +536,7 @@ function filteredEntries() {
                 entry.questionType,
                 entry.semester,
                 entry.source,
+                entry.questionCode,
                 entry.questionText,
                 entry.answerText,
                 entry.errorReason
@@ -598,6 +571,64 @@ function syncSelectionToDom() {
     }
 }
 
+async function exportSelection(options) {
+    const { type, endpoint, fallbackName, errorMessage } = options;
+    if (!state.selectedIds.size || exportInProgress) {
+        if (!state.selectedIds.size && !exportInProgress) {
+            alert('Select at least one entry to export.');
+        }
+        return;
+    }
+
+    exportInProgress = type;
+    updateSelectionUI();
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ ids: Array.from(state.selectedIds) })
+        });
+
+        if (!response.ok) {
+            let message = errorMessage;
+            const contentType = response.headers.get('content-type') || '';
+            try {
+                if (contentType.includes('application/json')) {
+                    const data = await response.json();
+                    if (data?.error) message = data.error;
+                } else {
+                    const text = await response.text();
+                    if (text) message = text;
+                }
+            } catch (error) {
+                console.error('Failed to read export error response', error);
+            }
+            throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const filename =
+            parseFilenameFromContentDisposition(response.headers.get('content-disposition')) || fallbackName;
+        link.href = url;
+        link.download = filename;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error(error);
+        alert(error.message || errorMessage);
+    } finally {
+        exportInProgress = null;
+        updateSelectionUI();
+    }
+}
+
 function updateSelectionUI(filtered = null) {
     const filteredEntriesList = Array.isArray(filtered) ? filtered : filteredEntries();
     const totalSelected = state.selectedIds.size;
@@ -622,18 +653,24 @@ function updateSelectionUI(filtered = null) {
     }
 
     if (exportBtn) {
-        exportBtn.disabled = !totalSelected || exportInProgress;
-        exportBtn.textContent = exportInProgress ? '导出中…' : '导出选中（Word）';
+        exportBtn.disabled = !totalSelected || Boolean(exportInProgress);
+        exportBtn.textContent = exportInProgress === 'word' ? '导出中…' : '导出选中（Word）';
+    }
+
+    if (exportPaperBtn) {
+        exportPaperBtn.disabled = !totalSelected || Boolean(exportInProgress);
+        exportPaperBtn.textContent = exportInProgress === 'paper' ? '导出中…' : '导出试卷';
     }
 
     if (clearSelectionBtn) {
-        clearSelectionBtn.disabled = !totalSelected || exportInProgress;
+        clearSelectionBtn.disabled = !totalSelected || Boolean(exportInProgress);
     }
 
     if (selectFilteredBtn) {
         const hasFiltered = filteredEntriesList.length > 0;
         const allFilteredSelected = hasFiltered && filteredEntriesList.every((entry) => state.selectedIds.has(entry.id));
-        selectFilteredBtn.disabled = !hasFiltered || allFilteredSelected || exportInProgress;
+        selectFilteredBtn.disabled =
+            !hasFiltered || allFilteredSelected || Boolean(exportInProgress);
     }
 }
 
@@ -831,7 +868,8 @@ function formatLogSummary(log) {
         'clear-entries': 'All entries cleared',
         'import-entries': 'Entries imported',
         'list-entries': 'Entries viewed',
-        'export-entries': 'Entries exported'
+        'export-entries': 'Entries exported',
+        'export-paper': 'Paper exported'
     };
 
     return labels[log.action] || log.action.replace(/-/g, ' ');
@@ -876,6 +914,11 @@ function formatLogDetails(log) {
                 return `已准备 ${details.count} 条记录用于导出。`;
             }
             return '';
+        case 'export-paper':
+            if (typeof details.count === 'number') {
+                return `已准备 ${details.count} 条记录用于试卷导出。`;
+            }
+            return '';
         default:
             if (!Object.keys(details).length) return '';
             return Object.entries(details)
@@ -887,6 +930,9 @@ function formatLogDetails(log) {
 function formatEntryLine(details, options = {}) {
     if (!details) return '';
     const parts = [];
+    if (details.questionCode) {
+        parts.push(`编号：${details.questionCode}`);
+    }
     if (details.subject) {
         parts.push(`学科：${details.subject}`);
     }
@@ -936,6 +982,7 @@ function normalizeEntry(raw) {
     const answerPreview = answerImageResizedUrl || answerImageUrl;
     return {
         id: raw.id,
+        questionCode: raw.questionCode || '',
         source: raw.source || '',
         subject: raw.subject || '',
         semester: raw.semester || '',
