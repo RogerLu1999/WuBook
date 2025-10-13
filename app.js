@@ -22,6 +22,8 @@ const exportBtn = document.getElementById('export-btn');
 const exportPaperBtn = document.getElementById('export-paper-btn');
 const clearBtn = document.getElementById('clear-btn');
 const entriesContainer = document.getElementById('entries');
+const entriesTable = document.getElementById('entries-table');
+const entriesTableBody = entriesTable?.querySelector('tbody') || null;
 const statsEl = document.getElementById('stats');
 const searchInput = document.getElementById('search');
 const typeFilter = document.getElementById('type-filter');
@@ -264,11 +266,24 @@ entriesContainer.addEventListener('click', (event) => {
     const button = event.target.closest('button');
     if (!button) return;
 
-    const card = button.closest('.entry-card');
-    const entry = state.entries.find((item) => item.id === card.dataset.id);
+    const action = button.dataset.action;
+    if (!action) return;
+
+    if (action === 'toggle-details') {
+        const summaryRow = button.closest('.entry-row');
+        if (!summaryRow) return;
+        toggleEntryDetails(summaryRow.dataset.id, button);
+        return;
+    }
+
+    const host = button.closest('[data-id]');
+    const id = host?.dataset.id;
+    if (!id) return;
+
+    const entry = state.entries.find((item) => item.id === id);
     if (!entry) return;
 
-    switch (button.dataset.action) {
+    switch (action) {
         case 'delete':
             if (confirm('Delete this entry?')) {
                 fetch(`/api/entries/${entry.id}`, { method: 'DELETE' })
@@ -289,7 +304,7 @@ entriesContainer.addEventListener('click', (event) => {
             openEditDialog(entry);
             break;
         case 'similar':
-            showSimilarEntries(card, entry);
+            showSimilarEntries(entry);
             break;
     }
 });
@@ -298,8 +313,8 @@ entriesContainer.addEventListener('change', (event) => {
     const checkbox = event.target.closest('.entry-select-input');
     if (!checkbox) return;
 
-    const card = checkbox.closest('.entry-card');
-    const id = card?.dataset.id;
+    const summaryRow = checkbox.closest('.entry-row');
+    const id = summaryRow?.dataset.id;
     if (!id) return;
 
     if (checkbox.checked) {
@@ -308,7 +323,7 @@ entriesContainer.addEventListener('change', (event) => {
         state.selectedIds.delete(id);
     }
 
-    card?.classList.toggle('entry-card--selected', checkbox.checked);
+    summaryRow?.classList.toggle('entry-row--selected', checkbox.checked);
     updateSelectionUI();
 });
 
@@ -413,102 +428,271 @@ function applyFilters() {
 }
 
 function renderEntries() {
-    entriesContainer.innerHTML = '';
-    const fragment = document.createDocumentFragment();
+    if (!entriesTableBody) {
+        return [];
+    }
+
+    entriesTableBody.innerHTML = '';
     const entries = filteredEntries();
 
+    if (!entries.length) {
+        const emptyRow = document.createElement('tr');
+        emptyRow.className = 'entries-empty-row';
+        const emptyCell = document.createElement('td');
+        emptyCell.colSpan = 9;
+        emptyCell.textContent = '暂无记录，请先添加错题。';
+        emptyRow.append(emptyCell);
+        entriesTableBody.append(emptyRow);
+        return entries;
+    }
+
+    const fragment = document.createDocumentFragment();
+
     for (const entry of entries) {
-        const card = entryTemplate.content.firstElementChild.cloneNode(true);
-        card.dataset.id = entry.id;
+        const rowFragment = entryTemplate.content.cloneNode(true);
+        const summaryRow = rowFragment.querySelector('.entry-row');
+        const detailRow = rowFragment.querySelector('.entry-detail-row');
+        if (!summaryRow || !detailRow) {
+            continue;
+        }
+
+        summaryRow.dataset.id = entry.id;
+        detailRow.dataset.id = entry.id;
+
         const isSelected = state.selectedIds.has(entry.id);
-        card.classList.toggle('entry-card--selected', isSelected);
-        const titleParts = [entry.subject, entry.questionType].filter(Boolean);
-        const fallbackTitle = entry.subject || entry.questionType || '未分类题目';
-        card.querySelector('.entry-title').textContent = titleParts.join(' · ') || fallbackTitle;
-        const codeEl = card.querySelector('.entry-code');
+        summaryRow.classList.toggle('entry-row--selected', isSelected);
+
+        const selectInput = summaryRow.querySelector('.entry-select-input');
+        if (selectInput) {
+            selectInput.checked = isSelected;
+        }
+
+        const summaryTextEl = summaryRow.querySelector('.entry-summary-text');
+        const summaryImageEl = summaryRow.querySelector('.entry-summary-image');
+        const summaryImage = summaryImageEl?.querySelector('img');
+        const normalizedQuestion = (entry.questionText || '').replace(/\s+/g, ' ').trim();
+
+        if (normalizedQuestion) {
+            if (summaryTextEl) {
+                summaryTextEl.textContent = truncateText(normalizedQuestion, 60);
+                summaryTextEl.hidden = false;
+            }
+            if (summaryImageEl) {
+                summaryImageEl.hidden = true;
+            }
+            if (summaryImage) {
+                summaryImage.src = '';
+            }
+        } else if (entry.questionImageSrc) {
+            if (summaryTextEl) {
+                summaryTextEl.textContent = '';
+                summaryTextEl.hidden = true;
+            }
+            if (summaryImageEl && summaryImage) {
+                summaryImage.src = entry.questionImageSrc;
+                summaryImageEl.hidden = false;
+            }
+        } else if (summaryTextEl) {
+            const fallbackText = entry.summary || '';
+            summaryTextEl.textContent = fallbackText ? truncateText(fallbackText, 60) : '—';
+            summaryTextEl.hidden = false;
+            if (summaryImageEl) {
+                summaryImageEl.hidden = true;
+            }
+            if (summaryImage) {
+                summaryImage.src = '';
+            }
+        }
+
+        const subjectCell = summaryRow.querySelector('.entry-cell--subject');
+        if (subjectCell) {
+            if (entry.subject) {
+                subjectCell.textContent = entry.subject;
+                subjectCell.title = entry.subject;
+            } else {
+                subjectCell.textContent = '—';
+                subjectCell.removeAttribute('title');
+            }
+        }
+
+        const typeCell = summaryRow.querySelector('.entry-cell--type');
+        if (typeCell) {
+            const typeParts = [entry.semester, entry.questionType].filter(Boolean).join(' · ');
+            if (typeParts) {
+                typeCell.textContent = typeParts;
+                typeCell.title = typeParts;
+            } else {
+                typeCell.textContent = '—';
+                typeCell.removeAttribute('title');
+            }
+        }
+
+        const reasonCell = summaryRow.querySelector('.entry-cell--reason');
+        if (reasonCell) {
+            if (entry.errorReason) {
+                reasonCell.textContent = truncateText(entry.errorReason, 20);
+                reasonCell.title = entry.errorReason;
+            } else {
+                reasonCell.textContent = '—';
+                reasonCell.removeAttribute('title');
+            }
+        }
+
+        const sourceCell = summaryRow.querySelector('.entry-cell--source');
+        if (sourceCell) {
+            if (entry.source) {
+                sourceCell.textContent = entry.source;
+                sourceCell.title = entry.source;
+            } else {
+                sourceCell.textContent = '—';
+                sourceCell.removeAttribute('title');
+            }
+        }
+
+        const remarkCell = summaryRow.querySelector('.entry-cell--remark');
+        if (remarkCell) {
+            if (entry.remark) {
+                remarkCell.textContent = truncateText(entry.remark, 20);
+                remarkCell.title = entry.remark;
+            } else {
+                remarkCell.textContent = '—';
+                remarkCell.removeAttribute('title');
+            }
+        }
+
+        const updatedCell = summaryRow.querySelector('.entry-cell--updated');
+        if (updatedCell) {
+            if (entry.updatedAt) {
+                updatedCell.textContent = formatRelativeTime(entry.updatedAt);
+                updatedCell.title = new Date(entry.updatedAt).toLocaleString();
+            } else {
+                updatedCell.textContent = '—';
+                updatedCell.removeAttribute('title');
+            }
+        }
+
+        const toggleButton = summaryRow.querySelector('[data-action="toggle-details"]');
+        if (toggleButton) {
+            toggleButton.setAttribute('aria-expanded', detailRow.hidden ? 'false' : 'true');
+        }
+
+        const codeEl = detailRow.querySelector('.entry-detail__code');
         if (codeEl) {
             if (entry.questionCode) {
-                codeEl.textContent = `编号：${entry.questionCode}`;
+                codeEl.textContent = entry.questionCode;
                 codeEl.hidden = false;
+                codeEl.dataset.label = '编号';
             } else {
                 codeEl.textContent = '';
                 codeEl.hidden = true;
+                delete codeEl.dataset.label;
             }
         }
-        const metaParts = [];
-        if (entry.subject) {
-            metaParts.push(`学科：${entry.subject}`);
-        }
-        if (entry.semester) {
-            metaParts.push(`学期：${entry.semester}`);
-        }
-        if (entry.questionType) {
-            metaParts.push(`题目类型：${entry.questionType}`);
-        }
-        if (entry.source) {
-            metaParts.push(`来源：${entry.source}`);
-        }
-        if (entry.createdAt) {
-            metaParts.push(`创建：${formatDateDisplay(entry.createdAt)}`);
-        }
-        metaParts.push(`更新：${formatRelativeTime(entry.updatedAt)}`);
-        card.querySelector('.entry-meta').textContent = metaParts.join(' • ');
 
-        const summaryEl = card.querySelector('.entry-summary');
-        if (summaryEl) {
-            summaryEl.textContent = entry.summary || '';
-            summaryEl.hidden = !entry.summary;
+        const createdEl = detailRow.querySelector('.entry-detail__created');
+        if (createdEl) {
+            createdEl.dataset.label = '创建';
+            createdEl.textContent = entry.createdAt
+                ? new Date(entry.createdAt).toLocaleString()
+                : '—';
         }
 
-        const questionSection = card.querySelector('.entry-section--question');
-        const questionTextEl = card.querySelector('.entry-question-text');
-        const questionFigure = card.querySelector('.entry-question-image');
-        const answerSection = card.querySelector('.entry-section--answer');
-        const answerTextEl = card.querySelector('.entry-answer-text');
-        const answerFigure = card.querySelector('.entry-answer-image');
-        const errorReasonEl = card.querySelector('.entry-error-reason');
-        const remarkEl = card.querySelector('.entry-remark');
+        const updatedDetailEl = detailRow.querySelector('.entry-detail__updated');
+        if (updatedDetailEl) {
+            updatedDetailEl.dataset.label = '最近更新';
+            updatedDetailEl.textContent = entry.updatedAt
+                ? new Date(entry.updatedAt).toLocaleString()
+                : '—';
+        }
+
+        const subjectDetailEl = detailRow.querySelector('.entry-detail__subject');
+        if (subjectDetailEl) {
+            subjectDetailEl.dataset.label = '学科';
+            if (entry.subject) {
+                subjectDetailEl.textContent = entry.subject;
+            } else {
+                subjectDetailEl.textContent = '—';
+            }
+        }
+
+        const typeDetailEl = detailRow.querySelector('.entry-detail__type');
+        if (typeDetailEl) {
+            typeDetailEl.dataset.label = '题型';
+            const typeParts = [entry.semester, entry.questionType].filter(Boolean).join(' · ');
+            typeDetailEl.textContent = typeParts || '—';
+        }
+
+        const sourceDetailEl = detailRow.querySelector('.entry-detail__source');
+        if (sourceDetailEl) {
+            sourceDetailEl.dataset.label = '来源';
+            sourceDetailEl.textContent = entry.source || '—';
+        }
+
+        const questionSection = detailRow.querySelector('.entry-section--question');
+        const questionTextEl = detailRow.querySelector('.entry-question-text');
+        const questionFigure = detailRow.querySelector('.entry-question-image');
+        const answerSection = detailRow.querySelector('.entry-section--answer');
+        const answerTextEl = detailRow.querySelector('.entry-answer-text');
+        const answerFigure = detailRow.querySelector('.entry-answer-image');
+        const errorReasonEl = detailRow.querySelector('.entry-error-reason');
+        const remarkEl = detailRow.querySelector('.entry-remark');
+        const similarSection = detailRow.querySelector('.entry-similar');
+        const similarList = similarSection?.querySelector('ul');
 
         const hasQuestionText = Boolean(entry.questionText);
-        questionTextEl.textContent = entry.questionText || '';
-        questionTextEl.hidden = !hasQuestionText;
-        questionFigure.innerHTML = '';
+        if (questionTextEl) {
+            questionTextEl.textContent = entry.questionText || '';
+            questionTextEl.hidden = !hasQuestionText;
+        }
+        if (questionFigure) {
+            questionFigure.innerHTML = '';
+        }
         const hasQuestionImage = Boolean(entry.questionImageSrc);
-        if (hasQuestionImage) {
+        if (hasQuestionImage && questionFigure) {
             appendImageLink(
                 questionFigure,
                 entry.questionImageOriginalSrc || entry.questionImageSrc,
                 '查看题目图片'
             );
             questionFigure.hidden = false;
-        } else {
+        } else if (questionFigure) {
             questionFigure.hidden = true;
         }
-        questionSection.hidden = !hasQuestionText && !hasQuestionImage;
+        if (questionSection) {
+            questionSection.hidden = !hasQuestionText && !hasQuestionImage;
+        }
 
         const hasAnswerText = Boolean(entry.answerText);
-        answerTextEl.textContent = entry.answerText || '';
-        answerTextEl.hidden = !hasAnswerText;
-        answerFigure.innerHTML = '';
+        if (answerTextEl) {
+            answerTextEl.textContent = entry.answerText || '';
+            answerTextEl.hidden = !hasAnswerText;
+        }
+        if (answerFigure) {
+            answerFigure.innerHTML = '';
+        }
         const hasAnswerImage = Boolean(entry.answerImageSrc);
-        if (hasAnswerImage) {
+        if (hasAnswerImage && answerFigure) {
             appendImageLink(
                 answerFigure,
                 entry.answerImageOriginalSrc || entry.answerImageSrc,
                 '查看答案图片'
             );
             answerFigure.hidden = false;
-        } else {
+        } else if (answerFigure) {
             answerFigure.hidden = true;
         }
-        answerSection.hidden = !hasAnswerText && !hasAnswerImage;
+        if (answerSection) {
+            answerSection.hidden = !hasAnswerText && !hasAnswerImage;
+        }
 
-        if (entry.errorReason) {
-            errorReasonEl.textContent = `错误原因：${entry.errorReason}`;
-            errorReasonEl.hidden = false;
-        } else {
-            errorReasonEl.textContent = '';
-            errorReasonEl.hidden = true;
+        if (errorReasonEl) {
+            if (entry.errorReason) {
+                errorReasonEl.textContent = `错误原因：${entry.errorReason}`;
+                errorReasonEl.hidden = false;
+            } else {
+                errorReasonEl.textContent = '';
+                errorReasonEl.hidden = true;
+            }
         }
 
         if (remarkEl) {
@@ -521,23 +705,55 @@ function renderEntries() {
             }
         }
 
-        const selectInput = card.querySelector('.entry-select-input');
-        if (selectInput) {
-            selectInput.checked = isSelected;
+        if (similarSection && similarList) {
+            similarList.innerHTML = '';
+            similarSection.hidden = true;
         }
 
-        card.querySelector('.entry-timestamp').textContent = `创建时间：${new Date(entry.createdAt).toLocaleString()}`;
-
-        fragment.append(card);
+        fragment.append(rowFragment);
     }
 
-    if (!fragment.childNodes.length) {
-        entriesContainer.innerHTML = '<p class="empty">No entries yet. Add your first mistake above!</p>';
-    } else {
-        entriesContainer.append(fragment);
-    }
+    entriesTableBody.append(fragment);
 
     return entries;
+}
+
+function getEntryRows(id) {
+    if (!id || !entriesContainer) {
+        return { summaryRow: null, detailRow: null };
+    }
+    const selectorId =
+        typeof CSS !== 'undefined' && CSS.escape
+            ? CSS.escape(id)
+            : id.replace(/\\/g, '\\\\').replace(/"/g, '\"');
+    return {
+        summaryRow: entriesContainer.querySelector(`.entry-row[data-id="${selectorId}"]`),
+        detailRow: entriesContainer.querySelector(`.entry-detail-row[data-id="${selectorId}"]`)
+    };
+}
+
+function ensureEntryDetailsVisible(id) {
+    const { summaryRow, detailRow } = getEntryRows(id);
+    if (!detailRow) return null;
+    if (detailRow.hidden) {
+        detailRow.hidden = false;
+        summaryRow?.querySelector('[data-action="toggle-details"]')?.setAttribute('aria-expanded', 'true');
+    }
+    return detailRow;
+}
+
+function toggleEntryDetails(id, triggerButton) {
+    const { summaryRow, detailRow } = getEntryRows(id);
+    if (!detailRow) return;
+    const willShow = detailRow.hidden;
+    detailRow.hidden = !willShow;
+    const button = triggerButton || summaryRow?.querySelector('[data-action="toggle-details"]');
+    if (button) {
+        button.setAttribute('aria-expanded', willShow ? 'true' : 'false');
+    }
+    if (willShow) {
+        detailRow.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 }
 
 function appendImageLink(container, src, label) {
@@ -737,12 +953,13 @@ function pruneSelection() {
 }
 
 function syncSelectionToDom() {
-    const cards = entriesContainer.querySelectorAll('.entry-card');
-    for (const card of cards) {
-        const id = card.dataset.id;
+    if (!entriesTableBody) return;
+    const rows = entriesTableBody.querySelectorAll('.entry-row');
+    for (const row of rows) {
+        const id = row.dataset.id;
         const isSelected = state.selectedIds.has(id);
-        card.classList.toggle('entry-card--selected', isSelected);
-        const checkbox = card.querySelector('.entry-select-input');
+        row.classList.toggle('entry-row--selected', isSelected);
+        const checkbox = row.querySelector('.entry-select-input');
         if (checkbox) {
             checkbox.checked = isSelected;
         }
@@ -923,9 +1140,14 @@ function openEditDialog(entry) {
     editDialog.showModal();
 }
 
-function showSimilarEntries(card, entry) {
-    const listContainer = card.querySelector('.entry-similar');
-    const list = listContainer.querySelector('ul');
+function showSimilarEntries(entry) {
+    const detailRow = ensureEntryDetailsVisible(entry.id);
+    if (!detailRow) return;
+
+    const listContainer = detailRow.querySelector('.entry-similar');
+    const list = listContainer?.querySelector('ul');
+    if (!listContainer || !list) return;
+
     list.innerHTML = '';
 
     const scores = state.entries

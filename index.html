@@ -80,7 +80,24 @@
                     <button type="button" id="clear-selection-btn" class="btn btn-secondary btn-compact" disabled>Clear Selection</button>
                 </div>
             </div>
-            <div id="entries" class="entries" aria-live="polite"></div>
+            <div id="entries" class="entries" aria-live="polite">
+                <table class="entries-table" id="entries-table" aria-label="错题列表">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="entries-table__select-col"></th>
+                            <th scope="col">题目摘要</th>
+                            <th scope="col">学科</th>
+                            <th scope="col">题型</th>
+                            <th scope="col">错误原因</th>
+                            <th scope="col">来源</th>
+                            <th scope="col">备注</th>
+                            <th scope="col">更新</th>
+                            <th scope="col" class="entries-table__actions-col">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </section>
 
         <section class="panel" id="entry-panel" aria-labelledby="entry-form-title" hidden>
@@ -173,45 +190,63 @@
     </main>
 
     <template id="entry-template">
-        <article class="entry-card" data-id="">
-            <header class="entry-header">
-                <div class="entry-select-area">
-                    <input type="checkbox" class="entry-select-input" aria-label="Select entry" />
+        <tr class="entry-row" data-id="">
+            <td class="entry-cell entry-cell--select">
+                <input type="checkbox" class="entry-select-input" aria-label="选择错题" />
+            </td>
+            <td class="entry-cell entry-cell--summary">
+                <div class="entry-summary-text" hidden></div>
+                <div class="entry-summary-image" hidden>
+                    <img class="entry-summary-image__img" alt="题目图片摘要" loading="lazy" />
                 </div>
-                <div class="entry-header__details">
-                    <h3 class="entry-title"></h3>
-                    <p class="entry-code" hidden></p>
-                    <p class="entry-meta"></p>
-                    <p class="entry-summary" hidden></p>
+            </td>
+            <td class="entry-cell entry-cell--subject"></td>
+            <td class="entry-cell entry-cell--type"></td>
+            <td class="entry-cell entry-cell--reason"></td>
+            <td class="entry-cell entry-cell--source"></td>
+            <td class="entry-cell entry-cell--remark"></td>
+            <td class="entry-cell entry-cell--updated"></td>
+            <td class="entry-cell entry-cell--actions">
+                <div class="entry-actions">
+                    <button class="btn-icon" data-action="toggle-details" title="查看详情" aria-expanded="false">📄</button>
+                    <button class="btn-icon" data-action="similar" title="查找相似题目">🔍</button>
+                    <button class="btn-icon" data-action="edit" title="编辑">✏️</button>
+                    <button class="btn-icon" data-action="delete" title="删除">🗑️</button>
                 </div>
-                <menu class="entry-actions" aria-label="Entry actions">
-                    <button class="btn-icon" data-action="similar" title="Find similar exercises">🔍</button>
-                    <button class="btn-icon" data-action="edit" title="Edit">✏️</button>
-                    <button class="btn-icon" data-action="delete" title="Delete">🗑️</button>
-                </menu>
-            </header>
-            <section class="entry-content">
-                <div class="entry-section entry-section--question">
-                    <h4>题目</h4>
-                    <p class="entry-question-text"></p>
-                    <figure class="entry-question-image"></figure>
+            </td>
+        </tr>
+        <tr class="entry-detail-row" data-id="" hidden>
+            <td colspan="9">
+                <div class="entry-detail">
+                    <div class="entry-detail__meta">
+                        <span class="entry-detail__code" hidden></span>
+                        <span class="entry-detail__subject"></span>
+                        <span class="entry-detail__type"></span>
+                        <span class="entry-detail__source"></span>
+                        <span class="entry-detail__created"></span>
+                        <span class="entry-detail__updated"></span>
+                    </div>
+                    <div class="entry-detail__content">
+                        <section class="entry-section entry-section--question">
+                            <h4>题目</h4>
+                            <p class="entry-question-text"></p>
+                            <figure class="entry-question-image"></figure>
+                        </section>
+                        <section class="entry-section entry-section--answer">
+                            <h4>答案</h4>
+                            <p class="entry-answer-text"></p>
+                            <figure class="entry-answer-image"></figure>
+                        </section>
+                        <p class="entry-error-reason" hidden></p>
+                        <p class="entry-remark" hidden></p>
+                        <section class="entry-similar" hidden>
+                            <h4>相似题目</h4>
+                            <ul></ul>
+                        </section>
+                    </div>
                 </div>
-                <div class="entry-section entry-section--answer">
-                    <h4>答案</h4>
-                    <p class="entry-answer-text"></p>
-                    <figure class="entry-answer-image"></figure>
-                </div>
-                <p class="entry-error-reason"></p>
-                <p class="entry-remark" hidden></p>
-            </section>
-            <footer class="entry-footer">
-                <p class="entry-timestamp"></p>
-                <div class="entry-similar" hidden>
-                    <h4>Similar exercises</h4>
-                    <ul></ul>
-                </div>
-            </footer>
-        </article>
+            </td>
+        </tr>
     </template>
 
     <dialog id="edit-dialog">
