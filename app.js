@@ -303,9 +303,6 @@ entriesContainer.addEventListener('click', (event) => {
         case 'edit':
             openEditDialog(entry);
             break;
-        case 'similar':
-            showSimilarEntries(entry);
-            break;
     }
 });
 
@@ -439,7 +436,7 @@ function renderEntries() {
         const emptyRow = document.createElement('tr');
         emptyRow.className = 'entries-empty-row';
         const emptyCell = document.createElement('td');
-        emptyCell.colSpan = 9;
+        emptyCell.colSpan = 10;
         emptyCell.textContent = '暂无记录，请先添加错题。';
         emptyRow.append(emptyCell);
         entriesTableBody.append(emptyRow);
@@ -471,6 +468,17 @@ function renderEntries() {
         const summaryImageEl = summaryRow.querySelector('.entry-summary-image');
         const summaryImage = summaryImageEl?.querySelector('img');
         const normalizedQuestion = (entry.questionText || '').replace(/\s+/g, ' ').trim();
+
+        const codeCell = summaryRow.querySelector('.entry-cell--code');
+        if (codeCell) {
+            if (entry.questionCode) {
+                codeCell.textContent = entry.questionCode;
+                codeCell.title = entry.questionCode;
+            } else {
+                codeCell.textContent = '—';
+                codeCell.removeAttribute('title');
+            }
+        }
 
         if (normalizedQuestion) {
             if (summaryTextEl) {

@@ -70,6 +70,10 @@
                         <a href="#" id="math-shortcut" class="filters__quick-link">数学</a>
                     </div>
                 </div>
+                <div class="entries-toolbar" role="group" aria-label="导出工具">
+                    <button id="export-btn" class="btn" disabled>导出选中（Word）</button>
+                    <button id="export-paper-btn" class="btn btn-secondary" disabled>导出试卷</button>
+                </div>
             </div>
 
             <div id="stats" class="stats" role="status" aria-live="polite"></div>
@@ -85,6 +89,7 @@
                     <thead>
                         <tr>
                             <th scope="col" class="entries-table__select-col"></th>
+                            <th scope="col">编号</th>
                             <th scope="col">题目摘要</th>
                             <th scope="col">学科</th>
                             <th scope="col">题型</th>
@@ -165,8 +170,6 @@
             </form>
 
             <div class="panel-footer">
-                <button id="export-btn" class="btn" disabled>导出选中（Word）</button>
-                <button id="export-paper-btn" class="btn btn-secondary" disabled>导出试卷</button>
                 <label class="btn btn-secondary" for="import-input">Import Entries</label>
                 <input type="file" id="import-input" accept="application/json" hidden />
                 <button id="clear-btn" class="btn btn-danger">Clear All</button>
@@ -194,6 +197,7 @@
             <td class="entry-cell entry-cell--select">
                 <input type="checkbox" class="entry-select-input" aria-label="选择错题" />
             </td>
+            <td class="entry-cell entry-cell--code"></td>
             <td class="entry-cell entry-cell--summary">
                 <div class="entry-summary-text" hidden></div>
                 <div class="entry-summary-image" hidden>
@@ -209,14 +213,13 @@
             <td class="entry-cell entry-cell--actions">
                 <div class="entry-actions">
                     <button class="btn-icon" data-action="toggle-details" title="查看详情" aria-expanded="false">📄</button>
-                    <button class="btn-icon" data-action="similar" title="查找相似题目">🔍</button>
                     <button class="btn-icon" data-action="edit" title="编辑">✏️</button>
                     <button class="btn-icon" data-action="delete" title="删除">🗑️</button>
                 </div>
             </td>
         </tr>
         <tr class="entry-detail-row" data-id="" hidden>
-            <td colspan="9">
+            <td colspan="10">
                 <div class="entry-detail">
                     <div class="entry-detail__meta">
                         <span class="entry-detail__code" hidden></span>
