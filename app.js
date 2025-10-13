@@ -69,6 +69,7 @@ entryForm.addEventListener('submit', async (event) => {
     const semester = (formData.get('semester') || '').toString().trim();
     const questionText = (formData.get('questionText') || '').toString().trim();
     const answerText = (formData.get('answerText') || '').toString().trim();
+    const remark = (formData.get('remark') || '').toString().trim();
     const questionImage = formData.get('questionImage');
     const answerImage = formData.get('answerImage');
     const hasQuestionImage = questionImage && questionImage.size > 0;
@@ -88,6 +89,7 @@ entryForm.addEventListener('submit', async (event) => {
     formData.set('semester', semester);
     formData.set('questionText', questionText);
     formData.set('answerText', answerText);
+    formData.set('remark', remark);
 
     if (!formData.get('createdAt')) {
         formData.set('createdAt', todayDateValue());
@@ -348,7 +350,8 @@ editDialog.addEventListener('close', () => {
         createdAt: document.getElementById('edit-created-at').value,
         errorReason: document.getElementById('edit-error-reason').value.trim(),
         questionText: document.getElementById('edit-question-text').value.trim(),
-        answerText: document.getElementById('edit-answer-text').value.trim()
+        answerText: document.getElementById('edit-answer-text').value.trim(),
+        remark: document.getElementById('edit-remark').value.trim()
     };
 
     if (!payload.createdAt) {
@@ -451,6 +454,12 @@ function renderEntries() {
         metaParts.push(`更新：${formatRelativeTime(entry.updatedAt)}`);
         card.querySelector('.entry-meta').textContent = metaParts.join(' • ');
 
+        const summaryEl = card.querySelector('.entry-summary');
+        if (summaryEl) {
+            summaryEl.textContent = entry.summary || '';
+            summaryEl.hidden = !entry.summary;
+        }
+
         const questionSection = card.querySelector('.entry-section--question');
         const questionTextEl = card.querySelector('.entry-question-text');
         const questionFigure = card.querySelector('.entry-question-image');
@@ -458,27 +467,41 @@ function renderEntries() {
         const answerTextEl = card.querySelector('.entry-answer-text');
         const answerFigure = card.querySelector('.entry-answer-image');
         const errorReasonEl = card.querySelector('.entry-error-reason');
+        const remarkEl = card.querySelector('.entry-remark');
 
         const hasQuestionText = Boolean(entry.questionText);
         questionTextEl.textContent = entry.questionText || '';
         questionTextEl.hidden = !hasQuestionText;
         questionFigure.innerHTML = '';
-        const shouldShowQuestionImage = !hasQuestionText && Boolean(entry.questionImageSrc);
-        questionFigure.hidden = !shouldShowQuestionImage;
-        if (shouldShowQuestionImage) {
-            appendImage(questionFigure, entry.questionImageSrc, `题目图片 - ${entry.questionType || entry.source || entry.id}`);
+        const hasQuestionImage = Boolean(entry.questionImageSrc);
+        if (hasQuestionImage) {
+            appendImageLink(
+                questionFigure,
+                entry.questionImageOriginalSrc || entry.questionImageSrc,
+                '查看题目图片'
+            );
+            questionFigure.hidden = false;
+        } else {
+            questionFigure.hidden = true;
         }
-        questionSection.hidden = !hasQuestionText && !shouldShowQuestionImage;
+        questionSection.hidden = !hasQuestionText && !hasQuestionImage;
 
         const hasAnswerText = Boolean(entry.answerText);
         answerTextEl.textContent = entry.answerText || '';
         answerTextEl.hidden = !hasAnswerText;
         answerFigure.innerHTML = '';
-        answerFigure.hidden = !entry.answerImageSrc;
-        if (entry.answerImageSrc) {
-            appendImage(answerFigure, entry.answerImageSrc, `答案图片 - ${entry.questionType || entry.source || entry.id}`);
+        const hasAnswerImage = Boolean(entry.answerImageSrc);
+        if (hasAnswerImage) {
+            appendImageLink(
+                answerFigure,
+                entry.answerImageOriginalSrc || entry.answerImageSrc,
+                '查看答案图片'
+            );
+            answerFigure.hidden = false;
+        } else {
+            answerFigure.hidden = true;
         }
-        answerSection.hidden = !hasAnswerText && !entry.answerImageSrc;
+        answerSection.hidden = !hasAnswerText && !hasAnswerImage;
 
         if (entry.errorReason) {
             errorReasonEl.textContent = `错误原因：${entry.errorReason}`;
@@ -486,6 +509,16 @@ function renderEntries() {
         } else {
             errorReasonEl.textContent = '';
             errorReasonEl.hidden = true;
+        }
+
+        if (remarkEl) {
+            if (entry.remark) {
+                remarkEl.textContent = `备注：${entry.remark}`;
+                remarkEl.hidden = false;
+            } else {
+                remarkEl.textContent = '';
+                remarkEl.hidden = true;
+            }
         }
 
         const selectInput = card.querySelector('.entry-select-input');
@@ -507,17 +540,14 @@ function renderEntries() {
     return entries;
 }
 
-function appendImage(container, src, alt) {
-    const img = document.createElement('img');
-    img.src = src;
-    img.alt = alt || '图片';
-    img.loading = 'lazy';
-    img.decoding = 'async';
-    img.addEventListener('error', () => {
-        container.innerHTML = '<p class="photo-error">图片无法加载，可能未正确上传。</p>';
-        container.hidden = false;
-    }, { once: true });
-    container.append(img);
+function appendImageLink(container, src, label) {
+    const link = document.createElement('a');
+    link.href = src;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.className = 'entry-image-link';
+    link.textContent = label || '查看图片';
+    container.append(link);
 }
 
 function truncateText(text, limit) {
@@ -685,7 +715,9 @@ function filteredEntries() {
                 entry.questionCode,
                 entry.questionText,
                 entry.answerText,
-                entry.errorReason
+                entry.errorReason,
+                entry.summary,
+                entry.remark
             ]
                 .join(' ')
                 .toLowerCase();
@@ -886,6 +918,7 @@ function openEditDialog(entry) {
     document.getElementById('edit-error-reason').value = entry.errorReason || '';
     document.getElementById('edit-question-text').value = entry.questionText || '';
     document.getElementById('edit-answer-text').value = entry.answerText || '';
+    document.getElementById('edit-remark').value = entry.remark || '';
 
     editDialog.showModal();
 }
@@ -927,7 +960,9 @@ function embedding(entry) {
         entry.source,
         entry.questionText,
         entry.answerText,
-        entry.errorReason
+        entry.errorReason,
+        entry.summary,
+        entry.remark
     ]
         .join(' ')
         .toLowerCase();
@@ -1165,6 +1200,9 @@ function normalizeEntry(raw) {
     const answerImageUrl = raw.answerImageUrl || null;
     const answerImageResizedUrl = raw.answerImageResizedUrl || null;
     const answerPreview = answerImageResizedUrl || answerImageUrl;
+    const questionText = raw.questionText || raw.description || raw.title || '';
+    const summary = typeof raw.summary === 'string' ? raw.summary.trim() : '';
+    const remark = typeof raw.remark === 'string' ? raw.remark.trim() : '';
     return {
         id: raw.id,
         questionCode: raw.questionCode || '',
@@ -1172,9 +1210,11 @@ function normalizeEntry(raw) {
         subject: raw.subject || '',
         semester: raw.semester || '',
         questionType: raw.questionType || raw.subject || '',
-        questionText: raw.questionText || raw.description || raw.title || '',
+        questionText,
         answerText: raw.answerText || raw.comments || '',
         errorReason: raw.errorReason || raw.reason || '',
+        summary: summary || computeQuestionSummary(questionText, Boolean(questionPreview)),
+        remark,
         questionImageUrl,
         questionImageResizedUrl,
         questionImageSrc: resolveMediaUrl(questionPreview),
@@ -1188,6 +1228,20 @@ function normalizeEntry(raw) {
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
     };
+}
+
+function computeQuestionSummary(text, hasImage) {
+    const normalized = (text || '').replace(/\s+/g, ' ').trim();
+    if (normalized) {
+        const chars = Array.from(normalized);
+        const limit = 20;
+        const truncated = chars.slice(0, limit).join('');
+        return chars.length > limit ? `${truncated}…` : truncated;
+    }
+    if (hasImage) {
+        return '题目图片（无文字）';
+    }
+    return '';
 }
 
 function resolveMediaUrl(url) {

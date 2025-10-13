@@ -439,6 +439,12 @@ select:focus {
     color: var(--text-muted);
 }
 
+.entry-summary {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
 .entry-content {
     display: grid;
     gap: 1rem;
@@ -459,6 +465,22 @@ select:focus {
     margin: 0;
     font-size: 1rem;
     color: var(--text);
+}
+
+.entry-remark {
+    margin: 0;
+    color: var(--text-muted);
+}
+
+.entry-image-link {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.entry-image-link:hover,
+.entry-image-link:focus {
+    text-decoration: underline;
 }
 
 .entry-section figure {
