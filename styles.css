@@ -273,6 +273,51 @@ select:focus {
     font-size: 0.9rem;
 }
 
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    border-radius: 12px;
+    background: rgba(226, 232, 240, 0.35);
+}
+
+.pagination[hidden] {
+    display: none;
+}
+
+.pagination__info {
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.pagination__controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.pagination__page-size {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.pagination__page-size select {
+    min-width: 5rem;
+}
+
+.pagination__buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
 .filters {
     display: flex;
     gap: 1rem;

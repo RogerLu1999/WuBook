@@ -11,7 +11,11 @@ const state = {
         dateEnd: ''
     },
     logs: [],
-    selectedIds: new Set()
+    selectedIds: new Set(),
+    pagination: {
+        page: 1,
+        pageSize: 10
+    }
 };
 
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
@@ -44,6 +48,11 @@ const logStatusEl = document.getElementById('log-status');
 const selectFilteredBtn = document.getElementById('select-filtered-btn');
 const clearSelectionBtn = document.getElementById('clear-selection-btn');
 const selectionStatusEl = document.getElementById('selection-status');
+const paginationContainer = document.getElementById('pagination');
+const paginationInfo = document.getElementById('pagination-info');
+const pageSizeSelect = document.getElementById('page-size');
+const paginationPrevBtn = document.getElementById('pagination-prev');
+const paginationNextBtn = document.getElementById('pagination-next');
 const entryPanel = document.getElementById('entry-panel');
 const logPanel = document.getElementById('log-panel');
 const openEntryPanelLink = document.getElementById('open-entry-panel');
@@ -343,6 +352,41 @@ clearSelectionBtn?.addEventListener('click', () => {
     updateSelectionUI();
 });
 
+pageSizeSelect?.addEventListener('change', (event) => {
+    const value = Number(event.target.value);
+    if (!Number.isFinite(value) || value <= 0) {
+        return;
+    }
+
+    state.pagination.pageSize = value;
+    state.pagination.page = 1;
+    const filtered = renderEntries();
+    updateSelectionUI(filtered);
+});
+
+paginationPrevBtn?.addEventListener('click', () => {
+    if (state.pagination.page <= 1) {
+        return;
+    }
+
+    state.pagination.page -= 1;
+    const filtered = renderEntries();
+    updateSelectionUI(filtered);
+});
+
+paginationNextBtn?.addEventListener('click', () => {
+    const entries = filteredEntries();
+    const pageSize = Math.max(1, state.pagination.pageSize || 1);
+    const totalPages = Math.max(1, Math.ceil(entries.length / pageSize));
+    if (state.pagination.page >= totalPages) {
+        return;
+    }
+
+    state.pagination.page += 1;
+    const filtered = renderEntries();
+    updateSelectionUI(filtered);
+});
+
 editForm.addEventListener('close', () => {
     // This event doesn't fire on dialog forms in all browsers. Handled by dialog close.
 });
@@ -420,6 +464,7 @@ function render() {
 }
 
 function applyFilters() {
+    state.pagination.page = 1;
     const filtered = renderEntries();
     updateSelectionUI(filtered);
 }
@@ -431,8 +476,32 @@ function renderEntries() {
 
     entriesTableBody.innerHTML = '';
     const entries = filteredEntries();
+    let pageSize = Math.max(1, Number(state.pagination.pageSize) || 1);
+    if (state.pagination.pageSize !== pageSize) {
+        state.pagination.pageSize = pageSize;
+    }
 
-    if (!entries.length) {
+    const totalEntries = entries.length;
+    const totalPages = totalEntries ? Math.ceil(totalEntries / pageSize) : 1;
+    const safePage = Math.min(Math.max(1, Number(state.pagination.page) || 1), totalPages);
+    if (state.pagination.page !== safePage) {
+        state.pagination.page = safePage;
+    }
+    const startIndex = totalEntries ? (state.pagination.page - 1) * pageSize : 0;
+    const visibleEntries = totalEntries
+        ? entries.slice(startIndex, Math.min(startIndex + pageSize, totalEntries))
+        : [];
+
+    updatePaginationUI({
+        totalEntries,
+        totalPages,
+        page: state.pagination.page,
+        pageSize,
+        visibleCount: visibleEntries.length,
+        startIndex
+    });
+
+    if (!visibleEntries.length) {
         const emptyRow = document.createElement('tr');
         emptyRow.className = 'entries-empty-row';
         const emptyCell = document.createElement('td');
@@ -445,7 +514,7 @@ function renderEntries() {
 
     const fragment = document.createDocumentFragment();
 
-    for (const entry of entries) {
+    for (const entry of visibleEntries) {
         const rowFragment = entryTemplate.content.cloneNode(true);
         const summaryRow = rowFragment.querySelector('.entry-row');
         const detailRow = rowFragment.querySelector('.entry-detail-row');
@@ -978,7 +1047,7 @@ async function exportSelection(options) {
     const { type, endpoint, fallbackName, errorMessage } = options;
     if (!state.selectedIds.size || exportInProgress) {
         if (!state.selectedIds.size && !exportInProgress) {
-            alert('Select at least one entry to export.');
+            alert('请先选择题目后再导出。');
         }
         return;
     }
@@ -1038,16 +1107,15 @@ function updateSelectionUI(filtered = null) {
     const visibleSelected = filteredEntriesList.filter((entry) => state.selectedIds.has(entry.id)).length;
 
     if (selectionStatusEl) {
-        let message = 'No entries selected.';
+        let message = '尚未选择题目。';
         if (totalSelected > 0) {
-            const suffix = totalSelected === 1 ? 'entry selected' : 'entries selected';
+            const parts = [`已选择 ${totalSelected} 道题目`];
             if (visibleSelected && visibleSelected !== totalSelected) {
-                message = `${totalSelected} ${suffix} (${visibleSelected} in view).`;
+                parts.push(`当前页显示 ${visibleSelected} 道`);
             } else if (visibleSelected === totalSelected) {
-                message = `${totalSelected} ${suffix} in view.`;
-            } else {
-                message = `${totalSelected} ${suffix}.`;
+                parts.push('当前页全部可见');
             }
+            message = `${parts.join('，')}。`;
             selectionStatusEl.classList.add('selection-status--active');
         } else {
             selectionStatusEl.classList.remove('selection-status--active');
@@ -1057,12 +1125,12 @@ function updateSelectionUI(filtered = null) {
 
     if (exportBtn) {
         exportBtn.disabled = !totalSelected || Boolean(exportInProgress);
-        exportBtn.textContent = exportInProgress === 'word' ? '导出中…' : '导出选中（Word）';
+        exportBtn.textContent = exportInProgress === 'word' ? '导出中…' : '导出所有信息';
     }
 
     if (exportPaperBtn) {
         exportPaperBtn.disabled = !totalSelected || Boolean(exportInProgress);
-        exportPaperBtn.textContent = exportInProgress === 'paper' ? '导出中…' : '导出试卷';
+        exportPaperBtn.textContent = exportInProgress === 'paper' ? '生成中…' : '生成试卷';
     }
 
     if (clearSelectionBtn) {
@@ -1074,6 +1142,48 @@ function updateSelectionUI(filtered = null) {
         const allFilteredSelected = hasFiltered && filteredEntriesList.every((entry) => state.selectedIds.has(entry.id));
         selectFilteredBtn.disabled =
             !hasFiltered || allFilteredSelected || Boolean(exportInProgress);
+    }
+}
+
+function updatePaginationUI({ totalEntries, totalPages, page, pageSize, visibleCount, startIndex }) {
+    if (!paginationContainer) {
+        return;
+    }
+
+    if (!totalEntries) {
+        paginationContainer.hidden = true;
+        if (paginationInfo) {
+            paginationInfo.textContent = '';
+        }
+        if (pageSizeSelect) {
+            pageSizeSelect.value = String(pageSize);
+        }
+        paginationPrevBtn?.setAttribute('disabled', 'true');
+        paginationNextBtn?.setAttribute('disabled', 'true');
+        return;
+    }
+
+    paginationContainer.hidden = false;
+
+    if (pageSizeSelect) {
+        pageSizeSelect.value = String(pageSize);
+    }
+
+    if (paginationInfo) {
+        const startDisplay = startIndex + 1;
+        const endDisplay = startIndex + (visibleCount || 0);
+        const infoText = visibleCount
+            ? `第 ${page}/${totalPages} 页，显示第 ${startDisplay}-${endDisplay} 条，共 ${totalEntries} 条`
+            : `第 ${page}/${totalPages} 页，共 ${totalEntries} 条`;
+        paginationInfo.textContent = infoText;
+    }
+
+    if (paginationPrevBtn) {
+        paginationPrevBtn.disabled = page <= 1;
+    }
+
+    if (paginationNextBtn) {
+        paginationNextBtn.disabled = page >= totalPages;
     }
 }
 
