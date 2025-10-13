@@ -133,11 +133,16 @@ app.put('/api/entries/:id', async (req, res) => {
             questionText: (req.body.questionText || '').trim(),
             answerText: (req.body.answerText || '').trim(),
             errorReason: (req.body.errorReason || '').trim(),
+            remark: (req.body.remark || '').trim(),
             createdAt: normalizeDateInput(req.body.createdAt, entries[index].createdAt),
             updatedAt: new Date().toISOString()
         };
 
         validateEntryContent(updatedEntry);
+        updatedEntry.summary = generateQuestionSummary(
+            updatedEntry.questionText,
+            Boolean(updatedEntry.questionImageUrl || updatedEntry.questionImageResizedUrl)
+        );
 
         assignQuestionCode(updatedEntry, entries.filter((_, itemIndex) => itemIndex !== index));
 
@@ -382,6 +387,8 @@ async function buildEntry(body, files = {}, options = {}) {
         questionText: (body.questionText || '').trim(),
         answerText: (body.answerText || '').trim(),
         errorReason: (body.errorReason || '').trim(),
+        remark: (body.remark || '').trim(),
+        summary: typeof body.summary === 'string' ? body.summary.trim() : '',
         questionImageUrl: null,
         questionImageResizedUrl: null,
         answerImageUrl: null,
@@ -418,6 +425,9 @@ async function buildEntry(body, files = {}, options = {}) {
     entry.answerImageUrl = entry.answerImageUrl || (typeof body.answerImageUrl === 'string' ? body.answerImageUrl : null);
     entry.answerImageResizedUrl =
         entry.answerImageResizedUrl || (typeof body.answerImageResizedUrl === 'string' ? body.answerImageResizedUrl : null);
+
+    entry.summary = entry.summary ||
+        generateQuestionSummary(entry.questionText, Boolean(entry.questionImageUrl || entry.questionImageResizedUrl));
 
     if (!skipValidation) {
         validateEntryContent(entry);
@@ -480,6 +490,9 @@ async function buildEntryFromImport(raw) {
         }
     }
 
+    entry.summary = entry.summary ||
+        generateQuestionSummary(entry.questionText, Boolean(entry.questionImageUrl || entry.questionImageResizedUrl));
+
     validateEntryContent(entry);
 
     return entry;
@@ -491,7 +504,14 @@ async function readEntries() {
         const data = await fsp.readFile(ENTRIES_FILE, 'utf8');
         const parsed = JSON.parse(data);
         if (!Array.isArray(parsed)) return [];
+        let needsWrite = false;
         if (ensureQuestionCodes(parsed)) {
+            needsWrite = true;
+        }
+        if (ensureEntryMetadata(parsed)) {
+            needsWrite = true;
+        }
+        if (needsWrite) {
             await writeEntries(parsed);
         }
         return parsed;
@@ -608,6 +628,38 @@ function validateEntryContent(entry) {
     }
 }
 
+function generateQuestionSummary(questionText, hasImage) {
+    const text = typeof questionText === 'string' ? questionText : '';
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (normalized) {
+        const chars = Array.from(normalized);
+        const limit = 20;
+        const truncated = chars.slice(0, limit).join('');
+        return chars.length > limit ? `${truncated}…` : truncated;
+    }
+    if (hasImage) {
+        return '题目图片（无文字）';
+    }
+    return '';
+}
+
+function ensureEntryMetadata(entries) {
+    let updated = false;
+    for (const entry of entries) {
+        if (typeof entry.remark !== 'string') {
+            entry.remark = entry.remark ? String(entry.remark).trim() : '';
+            updated = true;
+        }
+        const hasImage = Boolean(entry.questionImageUrl || entry.questionImageResizedUrl);
+        const summary = generateQuestionSummary(entry.questionText, hasImage);
+        if (entry.summary !== summary) {
+            entry.summary = summary;
+            updated = true;
+        }
+    }
+    return updated;
+}
+
 async function resolveUploadPath(url) {
     if (!url || typeof url !== 'string' || !url.startsWith('/uploads/')) {
         return null;
@@ -683,6 +735,11 @@ async function createWordExport(entries) {
         const reasonParagraph = createLabeledParagraph('错误原因：', entry.errorReason, { skipWhenEmpty: false });
         if (reasonParagraph) {
             children.push(reasonParagraph);
+        }
+
+        const remarkParagraph = createLabeledParagraph('备注：', entry.remark, { skipWhenEmpty: true });
+        if (remarkParagraph) {
+            children.push(remarkParagraph);
         }
 
         children.push(new Paragraph({ text: '' }));
