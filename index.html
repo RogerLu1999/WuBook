@@ -71,14 +71,14 @@
                     </div>
                 </div>
                 <div class="entries-toolbar" role="group" aria-label="导出工具">
-                    <button id="export-btn" class="btn" disabled>导出选中（Word）</button>
-                    <button id="export-paper-btn" class="btn btn-secondary" disabled>导出试卷</button>
+                    <button id="export-btn" class="btn" disabled>导出所有信息</button>
+                    <button id="export-paper-btn" class="btn btn-secondary" disabled>生成试卷</button>
                 </div>
             </div>
 
             <div id="stats" class="stats" role="status" aria-live="polite"></div>
             <div class="selection-toolbar">
-                <p id="selection-status" class="selection-status" role="status" aria-live="polite">No entries selected.</p>
+                <p id="selection-status" class="selection-status" role="status" aria-live="polite">尚未选择题目。</p>
                 <div class="selection-toolbar__actions">
                     <button type="button" id="select-filtered-btn" class="btn btn-secondary btn-compact">Select Filtered</button>
                     <button type="button" id="clear-selection-btn" class="btn btn-secondary btn-compact" disabled>Clear Selection</button>
@@ -102,6 +102,24 @@
                     </thead>
                     <tbody></tbody>
                 </table>
+            </div>
+            <div class="pagination" id="pagination" hidden>
+                <div class="pagination__info" id="pagination-info"></div>
+                <div class="pagination__controls">
+                    <label class="pagination__page-size" for="page-size">
+                        <span>每页显示</span>
+                        <select id="page-size">
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                        </select>
+                        <span>条</span>
+                    </label>
+                    <div class="pagination__buttons">
+                        <button type="button" id="pagination-prev" class="btn btn-secondary btn-compact">上一页</button>
+                        <button type="button" id="pagination-next" class="btn btn-secondary btn-compact">下一页</button>
+                    </div>
+                </div>
             </div>
         </section>
 
