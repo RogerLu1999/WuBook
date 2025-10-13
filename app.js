@@ -829,18 +829,23 @@ function toggleEntryDetails(id, triggerButton) {
         button.setAttribute('aria-expanded', willShow ? 'true' : 'false');
     }
     if (willShow) {
-        detailRow.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const targetRow = summaryRow || detailRow;
+        targetRow?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 }
 
 function appendImageLink(container, src, label) {
-    const link = document.createElement('a');
-    link.href = src;
-    link.target = '_blank';
-    link.rel = 'noopener';
-    link.className = 'entry-image-link';
-    link.textContent = label || '查看图片';
-    container.append(link);
+    if (!container) return;
+    const image = document.createElement('img');
+    image.src = src;
+    image.alt = label || '';
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    image.className = 'entry-detail__image';
+    image.addEventListener('click', () => {
+        window.open(src, '_blank', 'noopener');
+    });
+    container.append(image);
 }
 
 function truncateText(text, limit) {
