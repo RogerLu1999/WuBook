@@ -759,6 +759,15 @@ async function createPaperExport(entries) {
     const children = [];
 
     for (const [index, entry] of entries.entries()) {
+        if (index > 0) {
+            children.push(
+                new Paragraph({
+                    text: '',
+                    spacing: { before: 200, after: 200 }
+                })
+            );
+        }
+
         const metaParts = [];
         if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
         if (entry.subject) metaParts.push(entry.subject);
@@ -770,8 +779,7 @@ async function createPaperExport(entries) {
         children.push(
             new Paragraph({
                 children: [new TextRun({ text: metaText, italics: true, size: 18 })],
-                pageBreakBefore: index > 0,
-                spacing: { before: index > 0 ? 200 : 0, after: 200 }
+                spacing: { after: 200 }
             })
         );
 
