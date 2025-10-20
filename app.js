@@ -3,8 +3,8 @@ const state = {
     filters: {
         search: '',
         type: '',
-        subject: '',
-        semester: '',
+        subject: '数学',
+        semester: '八上',
         source: '',
         errorReason: '',
         dateStart: '',
@@ -38,6 +38,8 @@ const errorReasonFilter = document.getElementById('error-reason-filter');
 const dateStartInput = document.getElementById('date-start');
 const dateEndInput = document.getElementById('date-end');
 const createdAtInput = document.getElementById('created-at');
+const subjectInput = document.getElementById('subject');
+const semesterSelect = document.getElementById('semester');
 const entryTemplate = document.getElementById('entry-template');
 const editDialog = document.getElementById('edit-dialog');
 const editForm = document.getElementById('edit-form');
@@ -67,6 +69,7 @@ let logStatusTimeout;
 let logLoading = false;
 
 setCreatedAtDefaultValue();
+setDefaultSubjectAndSemester();
 hideEntryPanel({ scroll: false });
 hideLogPanel({ scroll: false });
 
@@ -120,6 +123,7 @@ entryForm.addEventListener('submit', async (event) => {
         state.entries.unshift(normalizeEntry(entry));
         entryForm.reset();
         setCreatedAtDefaultValue();
+        setDefaultSubjectAndSemester();
         render();
         hideEntryPanel();
         document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -933,7 +937,9 @@ function populateFilterOptions() {
     const subjects = state.entries.map((entry) => entry.subject);
     subjects.push('数学');
     populateSelect(subjectFilter, subjects, 'subject');
-    populateSelect(semesterFilter, state.entries.map((entry) => entry.semester), 'semester');
+    const semesters = state.entries.map((entry) => entry.semester);
+    semesters.push('八上');
+    populateSelect(semesterFilter, semesters, 'semester');
     populateSelect(sourceFilter, state.entries.map((entry) => entry.source), 'source');
     populateSelect(errorReasonFilter, state.entries.map((entry) => entry.errorReason), 'errorReason');
 }
@@ -1341,6 +1347,15 @@ function todayDateValue() {
 function setCreatedAtDefaultValue() {
     if (!createdAtInput) return;
     createdAtInput.value = todayDateValue();
+}
+
+function setDefaultSubjectAndSemester() {
+    if (subjectInput) {
+        subjectInput.value = '数学';
+    }
+    if (semesterSelect) {
+        semesterSelect.value = '八上';
+    }
 }
 
 function formatDateDisplay(iso) {
