@@ -225,23 +225,7 @@ wizardUploadForm?.addEventListener('submit', (event) => {
         alert('请选择需要上传的原始图片。');
         return;
     }
-    wizardOriginalFile = file;
-    if (wizardOriginalPreviewUrl) {
-        URL.revokeObjectURL(wizardOriginalPreviewUrl);
-        wizardOriginalPreviewUrl = '';
-    }
-    wizardOriginalPreviewUrl = URL.createObjectURL(file);
-    if (wizardPreviewImage) {
-        wizardPreviewImage.src = wizardOriginalPreviewUrl;
-    }
-    if (wizardPreview) {
-        wizardPreview.hidden = false;
-    }
-    applyWizardDefaults();
-    showWizardStep('details');
-    if (wizardQuestionTextInput) {
-        wizardQuestionTextInput.focus();
-    }
+    prepareWizardDetailsStepFromFile(file, { focusQuestion: true });
 });
 
 wizardForm?.addEventListener('submit', async (event) => {
@@ -1537,6 +1521,29 @@ function showWizardStep(step) {
     }
 }
 
+function prepareWizardDetailsStepFromFile(file, { focusQuestion = false } = {}) {
+    if (!file) return;
+    const fileChanged = file !== wizardOriginalFile;
+    wizardOriginalFile = file;
+    if (fileChanged) {
+        if (wizardOriginalPreviewUrl) {
+            URL.revokeObjectURL(wizardOriginalPreviewUrl);
+        }
+        wizardOriginalPreviewUrl = URL.createObjectURL(file);
+    }
+    if (wizardPreviewImage && wizardOriginalPreviewUrl) {
+        wizardPreviewImage.src = wizardOriginalPreviewUrl;
+    }
+    if (wizardPreview) {
+        wizardPreview.hidden = !wizardOriginalPreviewUrl;
+    }
+    applyWizardDefaults();
+    showWizardStep('details');
+    if (focusQuestion && wizardQuestionTextInput) {
+        wizardQuestionTextInput.focus();
+    }
+}
+
 function resetWizard() {
     if (wizardUploadForm) {
         wizardUploadForm.reset();
@@ -1608,12 +1615,17 @@ async function extractWizardQuestionText() {
             throw new Error(message);
         }
 
-        const text = (payload && payload.text ? payload.text : '').trim();
+        const text = cleanOcrText(payload && payload.text ? payload.text : '');
         wizardRecognizedText = text;
         applyWizardRecognizedText({ replaceExisting: false });
 
+        if (file) {
+            const shouldFocusQuestion = wizardStepDetails?.hidden !== false || !wizardQuestionTextInput?.value;
+            prepareWizardDetailsStepFromFile(file, { focusQuestion: shouldFocusQuestion });
+        }
+
         if (text) {
-            setWizardOcrStatus('识别成功，已填入题目内容。', { type: 'success' });
+            setWizardOcrStatus('识别成功，已填入题目内容并自动进入下一步。', { type: 'success' });
         } else {
             setWizardOcrStatus('未识别出文字，请尝试更清晰的图片。', { type: 'error' });
         }
@@ -1653,6 +1665,25 @@ function applyWizardRecognizedText({ replaceExisting = false } = {}) {
     if (!wizardRecognizedText) return;
     if (!replaceExisting && wizardQuestionTextInput.value) return;
     wizardQuestionTextInput.value = wizardRecognizedText;
+}
+
+function cleanOcrText(text) {
+    if (!text) return '';
+    const normalized = String(text)
+        .replace(/\r\n/g, '\n')
+        .replace(/[\u3000\u00A0]/g, ' ')
+        .replace(/\s+([,.;:!?，。；：！？、])/g, '$1')
+        .replace(/([（［｛【<])\s+/g, '$1')
+        .replace(/\s+([）］｝】>])/g, '$1');
+
+    const lines = normalized.split('\n').map((line) =>
+        line
+            .replace(/[ \t]{2,}/g, ' ')
+            .replace(/([\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, '$1')
+            .trim()
+    );
+
+    return lines.join('\n').trim();
 }
 
 function showLogPanel() {
