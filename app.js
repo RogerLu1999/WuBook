@@ -62,6 +62,22 @@ const closeEntryPanelLink = document.getElementById('close-entry-panel');
 const openLogPanelLink = document.getElementById('open-log-panel');
 const closeLogPanelLink = document.getElementById('close-log-panel');
 const mathShortcutLink = document.getElementById('math-shortcut');
+const sourceHistoryList = document.getElementById('source-history');
+const questionTypeHistoryList = document.getElementById('question-type-history');
+
+const STORAGE_KEYS = {
+    lastSubject: 'wubook:lastSubject',
+    sourceHistory: 'wubook:sourceHistory',
+    questionTypeHistory: 'wubook:questionTypeHistory'
+};
+
+const LOCAL_STORAGE_AVAILABLE = (() => {
+    try {
+        return typeof window !== 'undefined' && 'localStorage' in window && window.localStorage !== null;
+    } catch (error) {
+        return false;
+    }
+})();
 
 let exportInProgress = null;
 
@@ -70,6 +86,7 @@ let logLoading = false;
 
 setCreatedAtDefaultValue();
 setDefaultSubjectAndSemester();
+updateEntryFormSuggestions();
 hideEntryPanel({ scroll: false });
 hideLogPanel({ scroll: false });
 
@@ -79,8 +96,10 @@ entryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(entryForm);
 
+    const source = (formData.get('source') || '').toString().trim();
     const subject = (formData.get('subject') || '').toString().trim();
     const semester = (formData.get('semester') || '').toString().trim();
+    const questionType = (formData.get('questionType') || '').toString().trim();
     const questionText = (formData.get('questionText') || '').toString().trim();
     const answerText = (formData.get('answerText') || '').toString().trim();
     const remark = (formData.get('remark') || '').toString().trim();
@@ -99,8 +118,10 @@ entryForm.addEventListener('submit', async (event) => {
         return;
     }
 
+    formData.set('source', source);
     formData.set('subject', subject);
     formData.set('semester', semester);
+    formData.set('questionType', questionType);
     formData.set('questionText', questionText);
     formData.set('answerText', answerText);
     formData.set('remark', remark);
@@ -120,6 +141,9 @@ entryForm.addEventListener('submit', async (event) => {
         }
 
         const entry = await response.json();
+        rememberLastSubject(subject);
+        rememberHistoryValue(STORAGE_KEYS.sourceHistory, source);
+        rememberHistoryValue(STORAGE_KEYS.questionTypeHistory, questionType);
         state.entries.unshift(normalizeEntry(entry));
         entryForm.reset();
         setCreatedAtDefaultValue();
@@ -463,6 +487,7 @@ function render() {
     populateFilterOptions();
     const filtered = renderEntries();
     renderStats();
+    updateEntryFormSuggestions();
     renderActivityLog();
     updateSelectionUI(filtered);
 }
@@ -977,6 +1002,120 @@ function populateSelect(selectElement, values, filterKey) {
     }
 }
 
+function updateEntryFormSuggestions() {
+    updateDatalistOptions(
+        sourceHistoryList,
+        getHistoryValues(STORAGE_KEYS.sourceHistory, state.entries.map((entry) => entry.source))
+    );
+    updateDatalistOptions(
+        questionTypeHistoryList,
+        getHistoryValues(STORAGE_KEYS.questionTypeHistory, state.entries.map((entry) => entry.questionType))
+    );
+}
+
+function updateDatalistOptions(datalist, values) {
+    if (!datalist) return;
+
+    const seen = new Set();
+    const uniqueValues = [];
+    for (const value of values) {
+        const normalized = (value ?? '').toString().trim();
+        if (!normalized || seen.has(normalized)) {
+            continue;
+        }
+        seen.add(normalized);
+        uniqueValues.push(normalized);
+    }
+
+    datalist.innerHTML = '';
+    for (const value of uniqueValues) {
+        const option = document.createElement('option');
+        option.value = value;
+        datalist.append(option);
+    }
+}
+
+function getHistoryValues(storageKey, entryValues = []) {
+    const stored = readStoredArray(storageKey);
+    const combined = [...stored];
+    const seen = new Set(stored);
+    for (const value of entryValues) {
+        const normalized = (value ?? '').toString().trim();
+        if (!normalized || seen.has(normalized)) {
+            continue;
+        }
+        seen.add(normalized);
+        combined.push(normalized);
+    }
+    return combined;
+}
+
+function rememberLastSubject(subject) {
+    const normalized = (subject ?? '').toString().trim();
+    if (!normalized || !LOCAL_STORAGE_AVAILABLE) return;
+    try {
+        window.localStorage.setItem(STORAGE_KEYS.lastSubject, normalized);
+    } catch (error) {
+        console.warn('Unable to persist last subject selection.', error);
+    }
+}
+
+function getLastSubject() {
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return '';
+    }
+    try {
+        return (window.localStorage.getItem(STORAGE_KEYS.lastSubject) || '').toString().trim();
+    } catch (error) {
+        console.warn('Unable to read last subject selection.', error);
+        return '';
+    }
+}
+
+function rememberHistoryValue(storageKey, value) {
+    const normalized = (value ?? '').toString().trim();
+    if (!normalized || !LOCAL_STORAGE_AVAILABLE) {
+        return;
+    }
+
+    const existing = readStoredArray(storageKey).filter((item) => item !== normalized);
+    existing.unshift(normalized);
+    writeStoredArray(storageKey, existing.slice(0, 20));
+}
+
+function readStoredArray(storageKey) {
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return [];
+    }
+    try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (!raw) {
+            return [];
+        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed
+            .map((value) => (value ?? '').toString().trim())
+            .filter((value) => Boolean(value));
+    } catch (error) {
+        console.warn('Unable to read stored suggestions.', error);
+        return [];
+    }
+}
+
+function writeStoredArray(storageKey, values) {
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return;
+    }
+    try {
+        window.localStorage.setItem(storageKey, JSON.stringify(values));
+    } catch (error) {
+        console.warn('Unable to persist stored suggestions.', error);
+    }
+}
+
 function filteredEntries() {
     const {
         search,
@@ -1351,7 +1490,8 @@ function setCreatedAtDefaultValue() {
 
 function setDefaultSubjectAndSemester() {
     if (subjectInput) {
-        subjectInput.value = '数学';
+        const storedSubject = getLastSubject();
+        subjectInput.value = storedSubject || '数学';
     }
     if (semesterSelect) {
         semesterSelect.value = '八上';

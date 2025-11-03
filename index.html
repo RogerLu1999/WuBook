@@ -134,7 +134,7 @@
             <form id="entry-form" class="form-grid">
                 <label class="field">
                     <span>来源</span>
-                    <input type="text" id="source" name="source" placeholder="教材、试卷等" />
+                    <input type="text" id="source" name="source" list="source-history" placeholder="教材、试卷等" />
                 </label>
                 <label class="field">
                     <span>学科</span>
@@ -152,7 +152,7 @@
                 </label>
                 <label class="field">
                     <span>题目类型</span>
-                    <input type="text" id="question-type" name="questionType" placeholder="选择题、填空题…" />
+                    <input type="text" id="question-type" name="questionType" list="question-type-history" placeholder="选择题、填空题…" />
                 </label>
                 <label class="field">
                     <span>创建日期</span>
@@ -276,7 +276,7 @@
             <input type="hidden" id="edit-id" />
             <label class="field">
                 <span>来源</span>
-                <input type="text" id="edit-source" />
+                <input type="text" id="edit-source" list="source-history" />
             </label>
             <label class="field">
                 <span>学科</span>
@@ -294,7 +294,7 @@
             </label>
             <label class="field">
                 <span>题目类型</span>
-                <input type="text" id="edit-question-type" />
+                <input type="text" id="edit-question-type" list="question-type-history" />
             </label>
             <label class="field field--span-2">
                 <span>创建日期</span>
@@ -346,6 +346,9 @@
         <option value="政治"></option>
         <option value="科学"></option>
     </datalist>
+
+    <datalist id="source-history"></datalist>
+    <datalist id="question-type-history"></datalist>
 
     <script src="app.js" type="module"></script>
 </body>
