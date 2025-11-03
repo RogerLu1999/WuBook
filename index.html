@@ -219,6 +219,17 @@
                             <input type="file" id="wizard-original-image" name="originalImage" accept="image/*" required />
                             <small>上传整张试卷或原题照片，下一步将展示预览。</small>
                         </label>
+                        <div class="wizard-ocr">
+                            <button type="button" id="wizard-ocr-button" class="btn btn-secondary btn-compact">
+                                使用 AI 识别文字
+                            </button>
+                            <p
+                                id="wizard-ocr-status"
+                                class="wizard-ocr__status"
+                                role="status"
+                                aria-live="polite"
+                            ></p>
+                        </div>
                         <div class="wizard-actions">
                             <button type="submit" class="btn btn-primary">继续</button>
                             <button type="button" id="wizard-cancel" class="btn btn-secondary">取消</button>
