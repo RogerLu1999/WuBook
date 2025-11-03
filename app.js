@@ -59,6 +59,21 @@ const entryPanel = document.getElementById('entry-panel');
 const logPanel = document.getElementById('log-panel');
 const openEntryPanelLink = document.getElementById('open-entry-panel');
 const closeEntryPanelLink = document.getElementById('close-entry-panel');
+const wizardPanel = document.getElementById('wizard-panel');
+const openWizardPanelLink = document.getElementById('open-wizard-panel');
+const closeWizardPanelLink = document.getElementById('close-wizard-panel');
+const wizardUploadForm = document.getElementById('wizard-upload-form');
+const wizardForm = document.getElementById('wizard-form');
+const wizardOriginalInput = document.getElementById('wizard-original-image');
+const wizardPreview = document.getElementById('wizard-preview');
+const wizardPreviewImage = document.getElementById('wizard-preview-image');
+const wizardStepUpload = document.getElementById('wizard-step-upload');
+const wizardStepDetails = document.getElementById('wizard-step-details');
+const wizardBackButton = document.getElementById('wizard-back');
+const wizardCancelButton = document.getElementById('wizard-cancel');
+const wizardCreatedAtInput = document.getElementById('wizard-created-at');
+const wizardSubjectInput = document.getElementById('wizard-subject');
+const wizardSemesterSelect = document.getElementById('wizard-semester');
 const openLogPanelLink = document.getElementById('open-log-panel');
 const closeLogPanelLink = document.getElementById('close-log-panel');
 const mathShortcutLink = document.getElementById('math-shortcut');
@@ -84,79 +99,27 @@ let exportInProgress = null;
 let logStatusTimeout;
 let logLoading = false;
 
+let wizardOriginalFile = null;
+let wizardOriginalPreviewUrl = '';
+
 setCreatedAtDefaultValue();
 setDefaultSubjectAndSemester();
 updateEntryFormSuggestions();
 hideEntryPanel({ scroll: false });
+hideWizardPanel({ scroll: false });
 hideLogPanel({ scroll: false });
 
 init();
 
 entryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const formData = new FormData(entryForm);
-
-    const source = (formData.get('source') || '').toString().trim();
-    const subject = (formData.get('subject') || '').toString().trim();
-    const semester = (formData.get('semester') || '').toString().trim();
-    const questionType = (formData.get('questionType') || '').toString().trim();
-    const questionText = (formData.get('questionText') || '').toString().trim();
-    const answerText = (formData.get('answerText') || '').toString().trim();
-    const remark = (formData.get('remark') || '').toString().trim();
-    const questionImage = formData.get('questionImage');
-    const answerImage = formData.get('answerImage');
-    const hasQuestionImage = questionImage && questionImage.size > 0;
-    const hasAnswerImage = answerImage && answerImage.size > 0;
-
-    if (!questionText && !hasQuestionImage) {
-        alert('请填写题目文字或上传题目图片。');
-        return;
-    }
-
-    if (!answerText && !hasAnswerImage) {
-        alert('请填写答案文字或上传答案图片。');
-        return;
-    }
-
-    formData.set('source', source);
-    formData.set('subject', subject);
-    formData.set('semester', semester);
-    formData.set('questionType', questionType);
-    formData.set('questionText', questionText);
-    formData.set('answerText', answerText);
-    formData.set('remark', remark);
-
-    if (!formData.get('createdAt')) {
-        formData.set('createdAt', todayDateValue());
-    }
-
-    try {
-        const response = await fetch('/api/entries', {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!response.ok) {
-            throw new Error('Failed to save entry');
-        }
-
-        const entry = await response.json();
-        rememberLastSubject(subject);
-        rememberHistoryValue(STORAGE_KEYS.sourceHistory, source);
-        rememberHistoryValue(STORAGE_KEYS.questionTypeHistory, questionType);
-        state.entries.unshift(normalizeEntry(entry));
-        entryForm.reset();
-        setCreatedAtDefaultValue();
-        setDefaultSubjectAndSemester();
-        render();
-        hideEntryPanel();
-        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        loadActivityLog();
-    } catch (error) {
-        console.error(error);
-        alert('Unable to save entry. Please try again.');
-        loadActivityLog();
-    }
+    const saved = await submitEntry(new FormData(entryForm));
+    if (!saved) return;
+    entryForm.reset();
+    setCreatedAtDefaultValue();
+    setDefaultSubjectAndSemester();
+    hideEntryPanel();
+    document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
 searchInput?.addEventListener('input', (event) => {
@@ -218,10 +181,149 @@ closeEntryPanelLink?.addEventListener('click', (event) => {
     hideEntryPanel();
 });
 
+openWizardPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    showWizardPanel();
+});
+
+closeWizardPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    hideWizardPanel();
+});
+
+wizardCancelButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    hideWizardPanel();
+});
+
+wizardBackButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    showWizardStep('upload');
+    wizardOriginalInput?.focus();
+});
+
+wizardUploadForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const file = wizardOriginalInput?.files?.[0] || null;
+    if (!file) {
+        alert('请选择需要上传的原始图片。');
+        return;
+    }
+    wizardOriginalFile = file;
+    if (wizardOriginalPreviewUrl) {
+        URL.revokeObjectURL(wizardOriginalPreviewUrl);
+        wizardOriginalPreviewUrl = '';
+    }
+    wizardOriginalPreviewUrl = URL.createObjectURL(file);
+    if (wizardPreviewImage) {
+        wizardPreviewImage.src = wizardOriginalPreviewUrl;
+    }
+    if (wizardPreview) {
+        wizardPreview.hidden = false;
+    }
+    applyWizardDefaults();
+    showWizardStep('details');
+    document.getElementById('wizard-source')?.focus();
+});
+
+wizardForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!wizardOriginalFile) {
+        alert('请先上传原始图片。');
+        showWizardStep('upload');
+        wizardOriginalInput?.focus();
+        return;
+    }
+    const formData = new FormData(wizardForm);
+    formData.set('originalImage', wizardOriginalFile);
+    const saved = await submitEntry(formData);
+    if (!saved) return;
+    setDefaultSubjectAndSemester();
+    setCreatedAtDefaultValue();
+    hideWizardPanel();
+    document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
 openLogPanelLink?.addEventListener('click', (event) => {
     event.preventDefault();
     showLogPanel();
 });
+
+async function submitEntry(formData) {
+    if (!(formData instanceof FormData)) {
+        return null;
+    }
+
+    const normalize = (value) => (value ?? '').toString().trim();
+
+    const source = normalize(formData.get('source'));
+    const subject = normalize(formData.get('subject'));
+    const semester = normalize(formData.get('semester'));
+    const questionType = normalize(formData.get('questionType'));
+    const questionText = normalize(formData.get('questionText'));
+    const answerText = normalize(formData.get('answerText'));
+    const remark = normalize(formData.get('remark'));
+    const errorReason = normalize(formData.get('errorReason'));
+    const questionImage = formData.get('questionImage');
+    const answerImage = formData.get('answerImage');
+    const originalImage = formData.get('originalImage');
+
+    const hasQuestionImage = questionImage instanceof File && questionImage.size > 0;
+    const hasAnswerImage = answerImage instanceof File && answerImage.size > 0;
+    const hasOriginalImage = originalImage instanceof File && originalImage.size > 0;
+
+    if (!questionText && !hasQuestionImage) {
+        alert('请填写题目文字或上传题目图片。');
+        return null;
+    }
+
+    if (!answerText && !hasAnswerImage) {
+        alert('请填写答案文字或上传答案图片。');
+        return null;
+    }
+
+    formData.set('source', source);
+    formData.set('subject', subject);
+    formData.set('semester', semester);
+    formData.set('questionType', questionType);
+    formData.set('questionText', questionText);
+    formData.set('answerText', answerText);
+    formData.set('remark', remark);
+    formData.set('errorReason', errorReason);
+
+    if (!hasOriginalImage) {
+        formData.delete('originalImage');
+    }
+
+    if (!formData.get('createdAt')) {
+        formData.set('createdAt', todayDateValue());
+    }
+
+    try {
+        const response = await fetch('/api/entries', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to save entry');
+        }
+
+        const entry = await response.json();
+        rememberLastSubject(subject);
+        rememberHistoryValue(STORAGE_KEYS.sourceHistory, source);
+        rememberHistoryValue(STORAGE_KEYS.questionTypeHistory, questionType);
+        state.entries.unshift(normalizeEntry(entry));
+        render();
+        return entry;
+    } catch (error) {
+        console.error(error);
+        alert('Unable to save entry. Please try again.');
+        return null;
+    } finally {
+        await loadActivityLog();
+    }
+}
 
 closeLogPanelLink?.addEventListener('click', (event) => {
     event.preventDefault();
@@ -791,6 +893,25 @@ function renderEntries() {
             answerSection.hidden = !hasAnswerText && !hasAnswerImage;
         }
 
+        const originalSection = detailRow.querySelector('.entry-section--original');
+        const originalFigure = detailRow.querySelector('.entry-original-image');
+        const hasOriginalImage = Boolean(entry.originalImageSrc);
+        if (originalFigure) {
+            originalFigure.innerHTML = '';
+        }
+        if (originalSection) {
+            if (hasOriginalImage && originalFigure) {
+                appendImageLink(
+                    originalFigure,
+                    entry.originalImageOriginalSrc || entry.originalImageSrc,
+                    '查看原始图片'
+                );
+                originalSection.hidden = false;
+            } else {
+                originalSection.hidden = true;
+            }
+        }
+
         if (errorReasonEl) {
             if (entry.errorReason) {
                 errorReasonEl.textContent = `错误原因：${entry.errorReason}`;
@@ -1339,6 +1460,7 @@ function updatePaginationUI({ totalEntries, totalPages, page, pageSize, visibleC
 
 function showEntryPanel() {
     if (!entryPanel) return;
+    hideWizardPanel({ scroll: false, reset: false });
     if (!entryPanel.hidden) return;
     entryPanel.hidden = false;
     openEntryPanelLink?.setAttribute('aria-expanded', 'true');
@@ -1354,6 +1476,77 @@ function hideEntryPanel(options = {}) {
     entryPanel.hidden = true;
     if (options.scroll !== false) {
         document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function showWizardPanel() {
+    if (!wizardPanel) return;
+    hideEntryPanel({ scroll: false });
+    if (!wizardPanel.hidden) return;
+    resetWizard();
+    wizardPanel.hidden = false;
+    openWizardPanelLink?.setAttribute('aria-expanded', 'true');
+    wizardPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    wizardOriginalInput?.focus();
+}
+
+function hideWizardPanel(options = {}) {
+    if (!wizardPanel) return;
+    const { scroll = true, reset = true } = options;
+    openWizardPanelLink?.setAttribute('aria-expanded', 'false');
+    if (!wizardPanel.hidden) {
+        wizardPanel.hidden = true;
+    }
+    if (reset) {
+        resetWizard();
+    }
+    if (scroll !== false) {
+        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function showWizardStep(step) {
+    const isUpload = step !== 'details';
+    if (wizardStepUpload) {
+        wizardStepUpload.hidden = !isUpload;
+    }
+    if (wizardStepDetails) {
+        wizardStepDetails.hidden = isUpload;
+    }
+}
+
+function resetWizard() {
+    if (wizardUploadForm) {
+        wizardUploadForm.reset();
+    }
+    if (wizardForm) {
+        wizardForm.reset();
+    }
+    wizardOriginalFile = null;
+    if (wizardOriginalPreviewUrl) {
+        URL.revokeObjectURL(wizardOriginalPreviewUrl);
+        wizardOriginalPreviewUrl = '';
+    }
+    if (wizardPreviewImage) {
+        wizardPreviewImage.src = '';
+    }
+    if (wizardPreview) {
+        wizardPreview.hidden = true;
+    }
+    showWizardStep('upload');
+    applyWizardDefaults();
+}
+
+function applyWizardDefaults() {
+    const storedSubject = getLastSubject() || '数学';
+    if (wizardSubjectInput && !wizardSubjectInput.value) {
+        wizardSubjectInput.value = storedSubject;
+    }
+    if (wizardSemesterSelect && !wizardSemesterSelect.value) {
+        wizardSemesterSelect.value = '八上';
+    }
+    if (wizardCreatedAtInput && !wizardCreatedAtInput.value) {
+        wizardCreatedAtInput.value = todayDateValue();
     }
 }
 
@@ -1484,17 +1677,28 @@ function todayDateValue() {
 }
 
 function setCreatedAtDefaultValue() {
-    if (!createdAtInput) return;
-    createdAtInput.value = todayDateValue();
+    const defaultValue = todayDateValue();
+    if (createdAtInput && !createdAtInput.value) {
+        createdAtInput.value = defaultValue;
+    }
+    if (wizardCreatedAtInput && !wizardCreatedAtInput.value) {
+        wizardCreatedAtInput.value = defaultValue;
+    }
 }
 
 function setDefaultSubjectAndSemester() {
+    const storedSubject = getLastSubject() || '数学';
     if (subjectInput) {
-        const storedSubject = getLastSubject();
-        subjectInput.value = storedSubject || '数学';
+        subjectInput.value = storedSubject;
+    }
+    if (wizardSubjectInput) {
+        wizardSubjectInput.value = storedSubject;
     }
     if (semesterSelect) {
         semesterSelect.value = '八上';
+    }
+    if (wizardSemesterSelect) {
+        wizardSemesterSelect.value = '八上';
     }
 }
 
@@ -1675,6 +1879,9 @@ function formatEntryLine(details, options = {}) {
         if (typeof details.answerImage === 'boolean') {
             parts.push(details.answerImage ? '答案图片已上传' : '无答案图片');
         }
+        if (typeof details.originalImage === 'boolean') {
+            parts.push(details.originalImage ? '原始图片已上传' : '无原始图片');
+        }
     }
     return parts.join(' • ');
 }
@@ -1700,6 +1907,9 @@ function normalizeEntry(raw) {
     const answerImageUrl = raw.answerImageUrl || null;
     const answerImageResizedUrl = raw.answerImageResizedUrl || null;
     const answerPreview = answerImageResizedUrl || answerImageUrl;
+    const originalImageUrl = raw.originalImageUrl || null;
+    const originalImageResizedUrl = raw.originalImageResizedUrl || null;
+    const originalPreview = originalImageResizedUrl || originalImageUrl;
     const questionText = raw.questionText || raw.description || raw.title || '';
     const summary = typeof raw.summary === 'string' ? raw.summary.trim() : '';
     const remark = typeof raw.remark === 'string' ? raw.remark.trim() : '';
@@ -1725,6 +1935,11 @@ function normalizeEntry(raw) {
         answerImageSrc: resolveMediaUrl(answerPreview),
         answerImageOriginalSrc: resolveMediaUrl(answerImageUrl),
         answerImageResizedSrc: resolveMediaUrl(answerImageResizedUrl),
+        originalImageUrl,
+        originalImageResizedUrl,
+        originalImageSrc: resolveMediaUrl(originalPreview),
+        originalImageOriginalSrc: resolveMediaUrl(originalImageUrl),
+        originalImageResizedSrc: resolveMediaUrl(originalImageResizedUrl),
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
     };

@@ -18,6 +18,13 @@
                 <div class="panel-header__top">
                     <h2 id="entries-title">错题库</h2>
                     <div class="panel-links">
+                        <a
+                            href="#"
+                            id="open-wizard-panel"
+                            class="panel-link"
+                            aria-controls="wizard-panel"
+                            aria-expanded="false"
+                        >错题向导</a>
                         <a href="#" id="open-entry-panel" class="panel-link" aria-controls="entry-panel" aria-expanded="false">新的错题</a>
                         <a href="#" id="open-log-panel" class="panel-link" aria-controls="log-panel" aria-expanded="false">查看活动日志</a>
                     </div>
@@ -194,6 +201,98 @@
             </div>
         </section>
 
+        <section class="panel" id="wizard-panel" aria-labelledby="wizard-title" hidden>
+            <div class="panel-header">
+                <div class="panel-header__top">
+                    <h2 id="wizard-title">错题向导</h2>
+                    <a href="#" id="close-wizard-panel" class="panel-link">返回错题列表</a>
+                </div>
+                <p>先上传原始图片，然后对照图片补充错题内容。</p>
+            </div>
+
+            <div class="wizard" id="wizard">
+                <div class="wizard-step" id="wizard-step-upload">
+                    <h3>第 1 步：上传原始图片</h3>
+                    <form id="wizard-upload-form" class="wizard-upload">
+                        <label class="field field--span-2">
+                            <span>原始图片</span>
+                            <input type="file" id="wizard-original-image" name="originalImage" accept="image/*" required />
+                            <small>上传整张试卷或原题照片，下一步将展示预览。</small>
+                        </label>
+                        <div class="wizard-actions">
+                            <button type="submit" class="btn btn-primary">继续</button>
+                            <button type="button" id="wizard-cancel" class="btn btn-secondary">取消</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="wizard-step" id="wizard-step-details" hidden>
+                    <h3>第 2 步：补充错题信息</h3>
+                    <div class="wizard-preview" id="wizard-preview" hidden>
+                        <img id="wizard-preview-image" alt="原始错题图片预览" />
+                    </div>
+                    <form id="wizard-form" class="form-grid">
+                        <label class="field">
+                            <span>来源</span>
+                            <input type="text" id="wizard-source" name="source" list="source-history" placeholder="教材、试卷等" />
+                        </label>
+                        <label class="field">
+                            <span>学科</span>
+                            <input type="text" id="wizard-subject" name="subject" list="subject-options" placeholder="数学、英语…" />
+                        </label>
+                        <label class="field">
+                            <span>学期</span>
+                            <select id="wizard-semester" name="semester">
+                                <option value="">请选择</option>
+                                <option value="八上">八上</option>
+                                <option value="八下">八下</option>
+                                <option value="九上">九上</option>
+                                <option value="九下">九下</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>题目类型</span>
+                            <input type="text" id="wizard-question-type" name="questionType" list="question-type-history" placeholder="选择题、填空题…" />
+                        </label>
+                        <label class="field">
+                            <span>创建日期</span>
+                            <input type="date" id="wizard-created-at" name="createdAt" />
+                        </label>
+                        <label class="field field--span-2">
+                            <span>错误原因</span>
+                            <textarea id="wizard-error-reason" name="errorReason" rows="2" placeholder="粗心、概念模糊等"></textarea>
+                        </label>
+                        <label class="field field--span-2">
+                            <span>备注</span>
+                            <textarea id="wizard-remark" name="remark" rows="2" placeholder="补充说明、复习提示等"></textarea>
+                        </label>
+                        <label class="field field--span-2">
+                            <span>题目内容（文字）</span>
+                            <textarea id="wizard-question-text" name="questionText" rows="3" placeholder="输入题干文本"></textarea>
+                        </label>
+                        <label class="field">
+                            <span>题目图片</span>
+                            <input type="file" id="wizard-question-image" name="questionImage" accept="image/*" />
+                            <small>可上传题干照片。</small>
+                        </label>
+                        <label class="field field--span-2">
+                            <span>答案（文字）</span>
+                            <textarea id="wizard-answer-text" name="answerText" rows="3" placeholder="输入正确答案或解析"></textarea>
+                        </label>
+                        <label class="field">
+                            <span>答案图片</span>
+                            <input type="file" id="wizard-answer-image" name="answerImage" accept="image/*" />
+                            <small>可上传答案照片。</small>
+                        </label>
+                        <div class="wizard-actions wizard-actions--form">
+                            <button type="button" id="wizard-back" class="btn btn-secondary">返回上一步</button>
+                            <button type="submit" class="btn btn-primary">保存</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
         <section class="panel panel--log" id="log-panel" aria-labelledby="activity-log-title" hidden>
             <div class="panel-header panel-header--log">
                 <div>
@@ -257,6 +356,10 @@
                             <h4>答案</h4>
                             <p class="entry-answer-text"></p>
                             <figure class="entry-answer-image"></figure>
+                        </section>
+                        <section class="entry-section entry-section--original" hidden>
+                            <h4>原始图片</h4>
+                            <figure class="entry-original-image"></figure>
                         </section>
                         <p class="entry-error-reason" hidden></p>
                         <p class="entry-remark" hidden></p>
