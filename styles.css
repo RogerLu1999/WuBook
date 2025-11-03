@@ -159,6 +159,60 @@ body {
     gap: 1rem 1.25rem;
 }
 
+.wizard {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.wizard-step {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.wizard-step h3 {
+    margin: 0;
+    font-size: 1.35rem;
+}
+
+.wizard-upload {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 1.25rem;
+}
+
+.wizard-preview {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1rem;
+    background: rgba(79, 70, 229, 0.04);
+    display: flex;
+    justify-content: center;
+}
+
+.wizard-preview img {
+    max-width: 100%;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.wizard-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.wizard-upload .wizard-actions {
+    grid-column: span 2;
+    justify-content: flex-end;
+}
+
+.wizard-actions--form {
+    grid-column: span 2;
+    justify-content: flex-end;
+}
+
 .field {
     display: flex;
     flex-direction: column;
@@ -807,6 +861,16 @@ select:focus {
 
     .field--span-2 {
         grid-column: span 1;
+    }
+
+    .wizard-upload {
+        grid-template-columns: 1fr;
+    }
+
+    .wizard-actions--form,
+    .wizard-upload .wizard-actions {
+        grid-column: span 1;
+        justify-content: flex-start;
     }
 
     .entry-header {

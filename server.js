@@ -84,7 +84,8 @@ app.post(
     '/api/entries',
     upload.fields([
         { name: 'questionImage', maxCount: 1 },
-        { name: 'answerImage', maxCount: 1 }
+        { name: 'answerImage', maxCount: 1 },
+        { name: 'originalImage', maxCount: 1 }
     ]),
     async (req, res) => {
         try {
@@ -101,7 +102,8 @@ app.post(
                 questionType: entry.questionType,
                 source: entry.source,
                 questionImage: Boolean(entry.questionImageUrl),
-                answerImage: Boolean(entry.answerImageUrl)
+                answerImage: Boolean(entry.answerImageUrl),
+                originalImage: Boolean(entry.originalImageUrl)
             });
             res.status(201).json(entry);
         } catch (error) {
@@ -182,7 +184,9 @@ app.delete('/api/entries/:id', async (req, res) => {
             removed.questionImageUrl,
             removed.questionImageResizedUrl,
             removed.answerImageUrl,
-            removed.answerImageResizedUrl
+            removed.answerImageResizedUrl,
+            removed.originalImageUrl,
+            removed.originalImageResizedUrl
         );
         await writeEntries(entries);
         await logAction('delete-entry', 'success', {
@@ -209,7 +213,9 @@ app.delete('/api/entries', async (req, res) => {
                 entry.questionImageUrl,
                 entry.questionImageResizedUrl,
                 entry.answerImageUrl,
-                entry.answerImageResizedUrl
+                entry.answerImageResizedUrl,
+                entry.originalImageUrl,
+                entry.originalImageResizedUrl
             );
         }
         await writeEntries([]);
@@ -369,6 +375,7 @@ async function buildEntry(body, files = {}, options = {}) {
     const now = new Date().toISOString();
     const questionFile = Array.isArray(files.questionImage) ? files.questionImage[0] : null;
     const answerFile = Array.isArray(files.answerImage) ? files.answerImage[0] : null;
+    const originalFile = Array.isArray(files.originalImage) ? files.originalImage[0] : null;
 
     const hasQuestionImageInput = Boolean(
         questionFile || body.questionImageDataUrl || body.questionImage || body.questionImageUrl
@@ -376,7 +383,6 @@ async function buildEntry(body, files = {}, options = {}) {
     const hasAnswerImageInput = Boolean(
         answerFile || body.answerImageDataUrl || body.answerImage || body.answerImageUrl
     );
-
     const entry = {
         id: body.id && typeof body.id === 'string' ? body.id : randomUUID(),
         questionCode: typeof body.questionCode === 'string' ? body.questionCode.trim().toUpperCase() : '',
@@ -393,6 +399,8 @@ async function buildEntry(body, files = {}, options = {}) {
         questionImageResizedUrl: null,
         answerImageUrl: null,
         answerImageResizedUrl: null,
+        originalImageUrl: null,
+        originalImageResizedUrl: null,
         createdAt: normalizeDateInput(body.createdAt, now),
         updatedAt: now
     };
@@ -403,6 +411,13 @@ async function buildEntry(body, files = {}, options = {}) {
 
     if (!entry.answerText && !hasAnswerImageInput) {
         throw new Error('答案内容需要文字或图片。');
+    }
+
+    if (originalFile) {
+        const filePath = originalFile.path || path.join(UPLOADS_DIR, originalFile.filename);
+        const photoInfo = await finalizePhotoStorage(filePath, originalFile.filename);
+        entry.originalImageUrl = photoInfo.photoUrl;
+        entry.originalImageResizedUrl = photoInfo.photoResizedUrl;
     }
 
     if (questionFile) {
@@ -425,6 +440,10 @@ async function buildEntry(body, files = {}, options = {}) {
     entry.answerImageUrl = entry.answerImageUrl || (typeof body.answerImageUrl === 'string' ? body.answerImageUrl : null);
     entry.answerImageResizedUrl =
         entry.answerImageResizedUrl || (typeof body.answerImageResizedUrl === 'string' ? body.answerImageResizedUrl : null);
+    entry.originalImageUrl = entry.originalImageUrl || (typeof body.originalImageUrl === 'string' ? body.originalImageUrl : null);
+    entry.originalImageResizedUrl =
+        entry.originalImageResizedUrl ||
+        (typeof body.originalImageResizedUrl === 'string' ? body.originalImageResizedUrl : null);
 
     entry.summary = entry.summary ||
         generateQuestionSummary(entry.questionText, Boolean(entry.questionImageUrl || entry.questionImageResizedUrl));
@@ -486,6 +505,30 @@ async function buildEntryFromImport(raw) {
                 entry.answerImageResizedUrl = resized;
             } catch (error) {
                 console.warn('Unable to regenerate resized answer image during import', error);
+            }
+        }
+    }
+
+    if (raw.originalImageDataUrl && !entry.originalImageUrl) {
+        const info = await saveDataUrl(raw.originalImageDataUrl, `${entry.id}-original`);
+        entry.originalImageUrl = info.photoUrl;
+        entry.originalImageResizedUrl = info.photoResizedUrl;
+    } else if (raw.originalImage && !entry.originalImageUrl) {
+        const info = await saveDataUrl(raw.originalImage, `${entry.id}-original`);
+        entry.originalImageUrl = info.photoUrl;
+        entry.originalImageResizedUrl = info.photoResizedUrl;
+    } else if (raw.originalImageUrl) {
+        entry.originalImageUrl = raw.originalImageUrl;
+        if (raw.originalImageResizedUrl) {
+            entry.originalImageResizedUrl = raw.originalImageResizedUrl;
+        } else if (raw.originalImageUrl.startsWith('/uploads/')) {
+            const relative = raw.originalImageUrl.slice(1);
+            const sourcePath = path.join(ROOT_DIR, relative);
+            try {
+                const resized = await generateResizedVariant(sourcePath);
+                entry.originalImageResizedUrl = resized;
+            } catch (error) {
+                console.warn('Unable to regenerate resized original image during import', error);
             }
         }
     }
