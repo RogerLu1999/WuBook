@@ -18,6 +18,7 @@ Wu(悟)Book is a lightweight web application designed to help you capture, revie
 
 - [Node.js](https://nodejs.org/) 18 or newer (the `npm` CLI ships with Node).
 - macOS, Windows, or Linux with permission to write to the repository folder (the app saves data to disk).
+- No extra native dependencies are required. The OCR feature uses the [`tesseract.js`](https://www.npmjs.com/package/tesseract.js) package, which is bundled via npm—there is no need to install the Tesseract OCR binaries separately.
 
 ### Run the app locally
 
@@ -27,6 +28,8 @@ Wu(悟)Book is a lightweight web application designed to help you capture, revie
    ```bash
    npm install
    ```
+
+   If you previously cloned the project and encounter an error mentioning `tesseract.js@^5.1.3`, pull the latest changes and rerun `npm install`. The dependency range has been updated to a published release so the install now succeeds without any extra setup.
 
 3. Start the Express server (this serves `index.html` and exposes the API the form submits to):
 
