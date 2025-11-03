@@ -24,7 +24,7 @@ body {
 }
 
 .app-header {
-    padding: 2.5rem 10vw 1.5rem;
+    padding: 1.25rem 8vw 0.75rem;
     background: #fff;
     border-bottom: 1px solid var(--border);
     box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
@@ -35,7 +35,7 @@ body {
 
 .app-header h1 {
     margin: 0;
-    font-size: clamp(2rem, 4vw, 3rem);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
     letter-spacing: -0.02em;
 }
 
@@ -216,7 +216,7 @@ body {
 }
 
 .wizard-preview img {
-    max-width: 100%;
+    max-width: 60%;
     border-radius: 12px;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
