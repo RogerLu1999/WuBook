@@ -20,6 +20,7 @@ const MM_PER_INCH = 25.4;
 const A4_WIDTH_MM = 210;
 const PRINT_DPI = 300;
 const TARGET_PRINT_WIDTH_PX = Math.round((A4_WIDTH_MM / MM_PER_INCH) * PRINT_DPI * 0.8);
+const MIN_OCR_WIDTH = 1200;
 
 const SUBJECT_PREFIX_MAP = new Map([
     ['数学', 'M'],
@@ -127,15 +128,16 @@ app.post('/api/ocr', ocrUpload.single('image'), async (req, res) => {
     }
 
     try {
-        const processedImage = await sharp(req.file.buffer)
-            .toFormat('png')
-            .toBuffer();
+        const processedImage = await preprocessOcrImage(req.file.buffer);
 
         const result = await Tesseract.recognize(processedImage, 'chi_sim+eng', {
-            logger: () => {}
+            logger: () => {},
+            psm: Tesseract.PSM.AUTO,
+            user_defined_dpi: '300'
         });
 
-        const text = (result?.data?.text || '').trim();
+        const rawText = (result?.data?.text || '').trim();
+        const text = cleanRecognizedText(rawText);
 
         await logAction('ocr-extract', 'success', {
             size: req.file.size,
@@ -149,6 +151,34 @@ app.post('/api/ocr', ocrUpload.single('image'), async (req, res) => {
         res.status(500).json({ error: 'Failed to recognize text' });
     }
 });
+
+async function preprocessOcrImage(buffer) {
+    const image = sharp(buffer, { failOnError: false }).rotate();
+    const metadata = await image.metadata();
+    if (metadata.width && metadata.width < MIN_OCR_WIDTH) {
+        image.resize({ width: MIN_OCR_WIDTH });
+    }
+    return image.grayscale().normalize().sharpen().toFormat('png').toBuffer();
+}
+
+function cleanRecognizedText(text) {
+    if (!text) return '';
+    const normalized = text
+        .replace(/\r\n/g, '\n')
+        .replace(/[\u3000\u00A0]/g, ' ')
+        .replace(/\s+([,.;:!?，。；：！？、])/g, '$1')
+        .replace(/([（［｛【<])\s+/g, '$1')
+        .replace(/\s+([）］｝】>])/g, '$1');
+
+    const lines = normalized.split('\n').map((line) =>
+        line
+            .replace(/[ \t]{2,}/g, ' ')
+            .replace(/([\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, '$1')
+            .trimEnd()
+    );
+
+    return lines.join('\n').trim();
+}
 
 app.put('/api/entries/:id', async (req, res) => {
     try {
