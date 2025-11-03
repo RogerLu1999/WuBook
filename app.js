@@ -75,6 +75,9 @@ const wizardCreatedAtInput = document.getElementById('wizard-created-at');
 const wizardSubjectInput = document.getElementById('wizard-subject');
 const wizardSemesterSelect = document.getElementById('wizard-semester');
 const wizardQuestionTextInput = document.getElementById('wizard-question-text');
+const wizardOcrButton = document.getElementById('wizard-ocr-button');
+const wizardOcrStatus = document.getElementById('wizard-ocr-status');
+const wizardOcrButtonDefaultLabel = wizardOcrButton ? wizardOcrButton.textContent.trim() : '';
 const openLogPanelLink = document.getElementById('open-log-panel');
 const closeLogPanelLink = document.getElementById('close-log-panel');
 const mathShortcutLink = document.getElementById('math-shortcut');
@@ -102,6 +105,7 @@ let logLoading = false;
 
 let wizardOriginalFile = null;
 let wizardOriginalPreviewUrl = '';
+let wizardRecognizedText = '';
 
 setCreatedAtDefaultValue();
 setDefaultSubjectAndSemester();
@@ -201,6 +205,17 @@ wizardBackButton?.addEventListener('click', (event) => {
     event.preventDefault();
     showWizardStep('upload');
     wizardOriginalInput?.focus();
+});
+
+wizardOriginalInput?.addEventListener('change', () => {
+    wizardRecognizedText = '';
+    setWizardOcrStatus('');
+    setWizardOcrButtonState(false);
+});
+
+wizardOcrButton?.addEventListener('click', async (event) => {
+    event.preventDefault();
+    await extractWizardQuestionText();
 });
 
 wizardUploadForm?.addEventListener('submit', (event) => {
@@ -1517,6 +1532,9 @@ function showWizardStep(step) {
     if (wizardStepDetails) {
         wizardStepDetails.hidden = isUpload;
     }
+    if (!isUpload) {
+        applyWizardRecognizedText({ replaceExisting: false });
+    }
 }
 
 function resetWizard() {
@@ -1537,6 +1555,9 @@ function resetWizard() {
     if (wizardPreview) {
         wizardPreview.hidden = true;
     }
+    wizardRecognizedText = '';
+    setWizardOcrStatus('');
+    setWizardOcrButtonState(false);
     showWizardStep('upload');
     applyWizardDefaults();
 }
@@ -1552,6 +1573,86 @@ function applyWizardDefaults() {
     if (wizardCreatedAtInput && !wizardCreatedAtInput.value) {
         wizardCreatedAtInput.value = todayDateValue();
     }
+}
+
+async function extractWizardQuestionText() {
+    const file = wizardOriginalInput?.files?.[0] || wizardOriginalFile;
+    if (!file) {
+        alert('请先选择需要识别的原始图片。');
+        wizardOriginalInput?.focus();
+        return;
+    }
+
+    if (typeof window.fetch !== 'function') {
+        alert('当前浏览器不支持识别操作。');
+        return;
+    }
+
+    try {
+        setWizardOcrButtonState(true, '识别中…');
+        setWizardOcrStatus('正在识别文字，请稍候…');
+
+        const formData = new FormData();
+        formData.append('image', file);
+        const response = await fetch('/api/ocr', {
+            method: 'POST',
+            body: formData
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+        const isJson = contentType.includes('application/json');
+        const payload = isJson ? await response.json() : {};
+
+        if (!response.ok) {
+            const message = (payload && payload.error) || '识别失败，请稍后再试。';
+            throw new Error(message);
+        }
+
+        const text = (payload && payload.text ? payload.text : '').trim();
+        wizardRecognizedText = text;
+        applyWizardRecognizedText({ replaceExisting: false });
+
+        if (text) {
+            setWizardOcrStatus('识别成功，已填入题目内容。', { type: 'success' });
+        } else {
+            setWizardOcrStatus('未识别出文字，请尝试更清晰的图片。', { type: 'error' });
+        }
+    } catch (error) {
+        console.error(error);
+        const message = (error && error.message) || '识别失败，请稍后再试。';
+        setWizardOcrStatus(message, { type: 'error' });
+    } finally {
+        setWizardOcrButtonState(false);
+    }
+}
+
+function setWizardOcrStatus(message, options = {}) {
+    if (!wizardOcrStatus) return;
+    wizardOcrStatus.textContent = message || '';
+    wizardOcrStatus.classList.remove('is-error', 'is-success');
+    if (options.type === 'error') {
+        wizardOcrStatus.classList.add('is-error');
+    } else if (options.type === 'success') {
+        wizardOcrStatus.classList.add('is-success');
+    }
+}
+
+function setWizardOcrButtonState(loading, label) {
+    if (!wizardOcrButton) return;
+    const isLoading = Boolean(loading);
+    wizardOcrButton.disabled = isLoading;
+    if (isLoading) {
+        wizardOcrButton.textContent = label || '识别中…';
+    } else {
+        wizardOcrButton.textContent = wizardOcrButtonDefaultLabel || '使用 AI 识别文字';
+    }
+}
+
+function applyWizardRecognizedText({ replaceExisting = false } = {}) {
+    if (!wizardQuestionTextInput) return;
+    if (!wizardRecognizedText) return;
+    if (!replaceExisting && wizardQuestionTextInput.value) return;
+    wizardQuestionTextInput.value = wizardRecognizedText;
 }
 
 function showLogPanel() {

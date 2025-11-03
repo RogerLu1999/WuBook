@@ -5,6 +5,7 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { randomUUID } = require('crypto');
 const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } = require('docx');
+const Tesseract = require('tesseract.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -62,6 +63,12 @@ const uploadStorage = multer.diskStorage({
 });
 
 const upload = multer({ storage: uploadStorage });
+const ocrUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024
+    }
+});
 
 app.use(express.json({ limit: '10mb' }));
 app.use('/data', (req, res) => res.sendStatus(404));
@@ -113,6 +120,35 @@ app.post(
         }
     }
 );
+
+app.post('/api/ocr', ocrUpload.single('image'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: '缺少需要识别的图片文件。' });
+    }
+
+    try {
+        const processedImage = await sharp(req.file.buffer)
+            .toFormat('png')
+            .toBuffer();
+
+        const result = await Tesseract.recognize(processedImage, 'chi_sim+eng', {
+            logger: () => {}
+        });
+
+        const text = (result?.data?.text || '').trim();
+
+        await logAction('ocr-extract', 'success', {
+            size: req.file.size,
+            textLength: text.length
+        });
+
+        res.json({ text });
+    } catch (error) {
+        console.error(error);
+        await logAction('ocr-extract', 'error', { message: error.message });
+        res.status(500).json({ error: 'Failed to recognize text' });
+    }
+});
 
 app.put('/api/entries/:id', async (req, res) => {
     try {

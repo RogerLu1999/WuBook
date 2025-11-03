@@ -8,6 +8,7 @@
     --accent: #4f46e5;
     --accent-soft: #eef2ff;
     --danger: #d92d20;
+    --success: #15803d;
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
@@ -180,6 +181,29 @@ body {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem 1.25rem;
+}
+
+.wizard-ocr {
+    grid-column: span 2;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.wizard-ocr__status {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    min-height: 1.2em;
+}
+
+.wizard-ocr__status.is-success {
+    color: var(--success);
+}
+
+.wizard-ocr__status.is-error {
+    color: var(--danger);
 }
 
 .wizard-preview {
