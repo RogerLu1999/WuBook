@@ -3,7 +3,7 @@ const state = {
     filters: {
         search: '',
         type: '',
-        subject: '数学',
+        subject: '',
         semester: '八上',
         source: '',
         errorReason: '',
@@ -74,6 +74,7 @@ const wizardCancelButton = document.getElementById('wizard-cancel');
 const wizardCreatedAtInput = document.getElementById('wizard-created-at');
 const wizardSubjectInput = document.getElementById('wizard-subject');
 const wizardSemesterSelect = document.getElementById('wizard-semester');
+const wizardQuestionTextInput = document.getElementById('wizard-question-text');
 const openLogPanelLink = document.getElementById('open-log-panel');
 const closeLogPanelLink = document.getElementById('close-log-panel');
 const mathShortcutLink = document.getElementById('math-shortcut');
@@ -223,7 +224,9 @@ wizardUploadForm?.addEventListener('submit', (event) => {
     }
     applyWizardDefaults();
     showWizardStep('details');
-    document.getElementById('wizard-source')?.focus();
+    if (wizardQuestionTextInput) {
+        wizardQuestionTextInput.focus();
+    }
 });
 
 wizardForm?.addEventListener('submit', async (event) => {
@@ -1464,6 +1467,7 @@ function showEntryPanel() {
     if (!entryPanel.hidden) return;
     entryPanel.hidden = false;
     openEntryPanelLink?.setAttribute('aria-expanded', 'true');
+    setDefaultSubjectAndSemester();
     setCreatedAtDefaultValue();
     entryPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     document.getElementById('source')?.focus();
@@ -1538,9 +1542,9 @@ function resetWizard() {
 }
 
 function applyWizardDefaults() {
-    const storedSubject = getLastSubject() || '数学';
+    const defaultSubject = getLastSubject() || '数学';
     if (wizardSubjectInput && !wizardSubjectInput.value) {
-        wizardSubjectInput.value = storedSubject;
+        wizardSubjectInput.value = defaultSubject;
     }
     if (wizardSemesterSelect && !wizardSemesterSelect.value) {
         wizardSemesterSelect.value = '八上';
@@ -1687,17 +1691,17 @@ function setCreatedAtDefaultValue() {
 }
 
 function setDefaultSubjectAndSemester() {
-    const storedSubject = getLastSubject() || '数学';
-    if (subjectInput) {
-        subjectInput.value = storedSubject;
+    const defaultSubject = getLastSubject() || '数学';
+    if (subjectInput && !subjectInput.value) {
+        subjectInput.value = defaultSubject;
     }
-    if (wizardSubjectInput) {
-        wizardSubjectInput.value = storedSubject;
+    if (wizardSubjectInput && !wizardSubjectInput.value) {
+        wizardSubjectInput.value = defaultSubject;
     }
-    if (semesterSelect) {
+    if (semesterSelect && !semesterSelect.value) {
         semesterSelect.value = '八上';
     }
-    if (wizardSemesterSelect) {
+    if (wizardSemesterSelect && !wizardSemesterSelect.value) {
         wizardSemesterSelect.value = '八上';
     }
 }
