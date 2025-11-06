@@ -161,22 +161,26 @@ async function recognizeTextWithQwen(buffer) {
 
     const payload = {
         model,
-        input: [
-            {
-                role: 'user',
-                content: [
-                    {
-                        image: {
-                            format: 'png',
-                            data: base64Image
+        input: {
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            image: {
+                                url: `data:image/png;base64,${base64Image}`
+                            }
+                        },
+                        {
+                            text: '请直接返回图片中识别到的文字，不要添加任何其他说明或格式。'
                         }
-                    },
-                    {
-                        text: '请直接返回图片中识别到的文字，不要添加任何其他说明或格式。'
-                    }
-                ]
-            }
-        ]
+                    ]
+                }
+            ]
+        },
+        parameters: {
+            result_format: 'text'
+        }
     };
 
     const response = await fetch(endpoint, {
