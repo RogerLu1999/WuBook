@@ -167,11 +167,11 @@ async function recognizeTextWithQwen(buffer) {
                     role: 'user',
                     content: [
                         {
-                            type: 'image',
-                            image_url: `data:image/png;base64,${base64Image}`
+                            image: {
+                                url: `data:image/png;base64,${base64Image}`
+                            }
                         },
                         {
-                            type: 'text',
                             text: '请直接返回图片中识别到的文字，不要添加任何其他说明或格式。'
                         }
                     ]
@@ -227,14 +227,18 @@ function extractTextFromQwenResponse(result) {
             if (!message) continue;
             const content = message.content || [];
             const parts = Array.isArray(content) ? content : [];
-            const textParts = parts
-                .map((part) => (typeof part?.text === 'string' ? part.text : ''))
-                .filter(Boolean);
+            const textParts = parts.map(extractTextFromQwenContentPart).filter(Boolean);
             if (textParts.length > 0) {
                 return textParts.join('').trim();
             }
+
             if (typeof message?.content === 'string') {
                 return message.content.trim();
+            }
+
+            const fallbackText = extractTextFromQwenContentPart(message.content);
+            if (fallbackText) {
+                return fallbackText.trim();
             }
         }
     }
@@ -244,6 +248,82 @@ function extractTextFromQwenResponse(result) {
     }
 
     return '';
+}
+
+function extractTextFromQwenContentPart(part) {
+    if (!part) return '';
+
+    if (typeof part === 'string') {
+        return part;
+    }
+
+    if (Array.isArray(part)) {
+        return part.map(extractTextFromQwenContentPart).filter(Boolean).join('');
+    }
+
+    if (typeof part !== 'object') {
+        return '';
+    }
+
+    if (typeof part.text === 'string') {
+        return part.text;
+    }
+
+    if (Array.isArray(part.text)) {
+        const nested = part.text.map(extractTextFromQwenContentPart).filter(Boolean).join('');
+        if (nested) {
+            return nested;
+        }
+    }
+
+    if (part.text && typeof part.text === 'object') {
+        const nested = extractTextFromQwenContentPart(part.text);
+        if (nested) {
+            return nested;
+        }
+    }
+
+    if (typeof part.content === 'string') {
+        return part.content;
+    }
+
+    if (Array.isArray(part.content)) {
+        const nested = part.content.map(extractTextFromQwenContentPart).filter(Boolean).join('');
+        if (nested) {
+            return nested;
+        }
+    }
+
+    if (part.content && typeof part.content === 'object') {
+        const nested = extractTextFromQwenContentPart(part.content);
+        if (nested) {
+            return nested;
+        }
+    }
+
+    if (typeof part.value === 'string') {
+        return part.value;
+    }
+
+    if (part.value && typeof part.value === 'object') {
+        const nested = extractTextFromQwenContentPart(part.value);
+        if (nested) {
+            return nested;
+        }
+    }
+
+    const hasTextLikeKey = ['text', 'content', 'value'].some((key) => key in part);
+    if (!hasTextLikeKey) {
+        return '';
+    }
+
+    const nested = Object.entries(part)
+        .filter(([key]) => ['text', 'content', 'value'].includes(key))
+        .map(([, value]) => extractTextFromQwenContentPart(value))
+        .filter(Boolean)
+        .join('');
+
+    return nested;
 }
 
 async function preprocessOcrImage(buffer) {
