@@ -167,11 +167,11 @@ async function recognizeTextWithQwen(buffer) {
                     role: 'user',
                     content: [
                         {
-                            image: {
-                                url: `data:image/png;base64,${base64Image}`
-                            }
+                            type: 'image',
+                            image_url: `data:image/png;base64,${base64Image}`
                         },
                         {
+                            type: 'text',
                             text: '请直接返回图片中识别到的文字，不要添加任何其他说明或格式。'
                         }
                     ]
