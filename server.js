@@ -5,7 +5,6 @@ const multer = require('multer');
 const sharp = require('sharp');
 const { randomUUID } = require('crypto');
 const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } = require('docx');
-const Tesseract = require('tesseract.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -129,28 +128,119 @@ app.post('/api/ocr', ocrUpload.single('image'), async (req, res) => {
 
     try {
         const processedImage = await preprocessOcrImage(req.file.buffer);
-
-        const result = await Tesseract.recognize(processedImage, 'chi_sim+eng', {
-            logger: () => {},
-            psm: Tesseract.PSM.AUTO,
-            user_defined_dpi: '300'
-        });
-
-        const rawText = (result?.data?.text || '').trim();
-        const text = cleanRecognizedText(rawText);
+        const text = await recognizeTextWithQwen(processedImage);
+        const cleanedText = cleanRecognizedText(text);
 
         await logAction('ocr-extract', 'success', {
             size: req.file.size,
-            textLength: text.length
+            textLength: cleanedText.length,
+            provider: 'qwen'
         });
 
-        res.json({ text });
+        res.json({ text: cleanedText });
     } catch (error) {
         console.error(error);
         await logAction('ocr-extract', 'error', { message: error.message });
-        res.status(500).json({ error: 'Failed to recognize text' });
+        res.status(500).json({ error: error.message || 'Failed to recognize text' });
     }
 });
+
+async function recognizeTextWithQwen(buffer) {
+    const apiKey = process.env.DASHSCOPE_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 Qwen API Key 配置。');
+    }
+
+    if (typeof fetch !== 'function') {
+        throw new Error('当前运行环境不支持向 Qwen 发起请求。');
+    }
+
+    const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
+    const model = process.env.QWEN_VL_MODEL || 'qwen-vl-max';
+    const base64Image = buffer.toString('base64');
+
+    const payload = {
+        model,
+        input: [
+            {
+                role: 'user',
+                content: [
+                    {
+                        image: {
+                            format: 'png',
+                            data: base64Image
+                        }
+                    },
+                    {
+                        text: '请直接返回图片中识别到的文字，不要添加任何其他说明或格式。'
+                    }
+                ]
+            }
+        ]
+    };
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = result?.message || `Qwen API 请求失败（${response.status}）`;
+        throw new Error(message);
+    }
+
+    if (result?.code && Number(result.code) !== 200) {
+        const message = result?.message || 'Qwen API 返回错误。';
+        throw new Error(message);
+    }
+
+    const text = extractTextFromQwenResponse(result);
+    if (!text) {
+        throw new Error('Qwen 未返回识别结果。');
+    }
+
+    return text;
+}
+
+function extractTextFromQwenResponse(result) {
+    if (!result) return '';
+
+    const output = result.output || {};
+
+    if (typeof output.text === 'string') {
+        return output.text.trim();
+    }
+
+    if (Array.isArray(output.choices)) {
+        for (const choice of output.choices) {
+            const message = choice?.message;
+            if (!message) continue;
+            const content = message.content || [];
+            const parts = Array.isArray(content) ? content : [];
+            const textParts = parts
+                .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+                .filter(Boolean);
+            if (textParts.length > 0) {
+                return textParts.join('').trim();
+            }
+            if (typeof message?.content === 'string') {
+                return message.content.trim();
+            }
+        }
+    }
+
+    if (typeof output?.message === 'string') {
+        return output.message.trim();
+    }
+
+    return '';
+}
 
 async function preprocessOcrImage(buffer) {
     const image = sharp(buffer, { failOnError: false }).rotate();
