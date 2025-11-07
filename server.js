@@ -20,6 +20,13 @@ const A4_WIDTH_MM = 210;
 const PRINT_DPI = 300;
 const TARGET_PRINT_WIDTH_PX = Math.round((A4_WIDTH_MM / MM_PER_INCH) * PRINT_DPI * 0.8);
 const MIN_OCR_WIDTH = 1200;
+const TARGET_FONT_POINT_SIZE = 12;
+const DOCX_FONT_SIZE = TARGET_FONT_POINT_SIZE * 2;
+const SCREEN_DPI = 96;
+const TARGET_TEXT_HEIGHT_PX = Math.round((TARGET_FONT_POINT_SIZE / 72) * SCREEN_DPI);
+const MIN_IMAGE_SCALE = 0.5;
+const MAX_IMAGE_SCALE = 2.5;
+const PAPER_IMAGE_BASE_WIDTH = 600;
 
 const SUBJECT_PREFIX_MAP = new Map([
     ['数学', 'M'],
@@ -574,11 +581,14 @@ app.post('/api/entries/export-paper', async (req, res) => {
             return res.status(404).json({ error: 'Selected entries were not found.' });
         }
 
-        const docBuffer = await createPaperExport(selectedEntries);
+        const { buffer: docBuffer, updatedEntryIds } = await createPaperExport(selectedEntries);
         const filename = `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`;
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        if (Array.isArray(updatedEntryIds) && updatedEntryIds.length) {
+            await writeEntries(entries);
+        }
         await logAction('export-paper', 'success', { count: selectedEntries.length });
         res.send(docBuffer);
     } catch (error) {
@@ -639,6 +649,9 @@ async function buildEntry(body, files = {}, options = {}) {
         answerImageResizedUrl: null,
         originalImageUrl: null,
         originalImageResizedUrl: null,
+        questionImageScale: parseScale(body.questionImageScale),
+        answerImageScale: parseScale(body.answerImageScale),
+        originalImageScale: parseScale(body.originalImageScale),
         createdAt: normalizeDateInput(body.createdAt, now),
         updatedAt: now
     };
@@ -656,6 +669,10 @@ async function buildEntry(body, files = {}, options = {}) {
         const photoInfo = await finalizePhotoStorage(filePath, originalFile.filename);
         entry.originalImageUrl = photoInfo.photoUrl;
         entry.originalImageResizedUrl = photoInfo.photoResizedUrl;
+        const originalScale = parseScale(photoInfo.photoScale);
+        if (originalScale !== null) {
+            entry.originalImageScale = originalScale;
+        }
     }
 
     if (questionFile) {
@@ -663,6 +680,10 @@ async function buildEntry(body, files = {}, options = {}) {
         const photoInfo = await finalizePhotoStorage(filePath, questionFile.filename);
         entry.questionImageUrl = photoInfo.photoUrl;
         entry.questionImageResizedUrl = photoInfo.photoResizedUrl;
+        const questionScale = parseScale(photoInfo.photoScale);
+        if (questionScale !== null) {
+            entry.questionImageScale = questionScale;
+        }
     }
 
     if (answerFile) {
@@ -670,6 +691,10 @@ async function buildEntry(body, files = {}, options = {}) {
         const photoInfo = await finalizePhotoStorage(filePath, answerFile.filename);
         entry.answerImageUrl = photoInfo.photoUrl;
         entry.answerImageResizedUrl = photoInfo.photoResizedUrl;
+        const answerScale = parseScale(photoInfo.photoScale);
+        if (answerScale !== null) {
+            entry.answerImageScale = answerScale;
+        }
     }
 
     entry.questionImageUrl = entry.questionImageUrl || (typeof body.questionImageUrl === 'string' ? body.questionImageUrl : null);
@@ -703,20 +728,40 @@ async function buildEntryFromImport(raw) {
         const info = await saveDataUrl(raw.questionImageDataUrl, `${entry.id}-question`);
         entry.questionImageUrl = info.photoUrl;
         entry.questionImageResizedUrl = info.photoResizedUrl;
+        const scale = parseScale(info.photoScale);
+        if (scale !== null) {
+            entry.questionImageScale = scale;
+        }
     } else if (raw.questionImage && !entry.questionImageUrl) {
         const info = await saveDataUrl(raw.questionImage, `${entry.id}-question`);
         entry.questionImageUrl = info.photoUrl;
         entry.questionImageResizedUrl = info.photoResizedUrl;
+        const scale = parseScale(info.photoScale);
+        if (scale !== null) {
+            entry.questionImageScale = scale;
+        }
     } else if (raw.questionImageUrl) {
         entry.questionImageUrl = raw.questionImageUrl;
         if (raw.questionImageResizedUrl) {
             entry.questionImageResizedUrl = raw.questionImageResizedUrl;
+            if (entry.questionImageScale === null) {
+                const scale = parseScale(raw.questionImageScale);
+                if (scale !== null) {
+                    entry.questionImageScale = scale;
+                }
+            }
         } else if (raw.questionImageUrl.startsWith('/uploads/')) {
             const relative = raw.questionImageUrl.slice(1);
             const sourcePath = path.join(ROOT_DIR, relative);
             try {
                 const resized = await generateResizedVariant(sourcePath);
-                entry.questionImageResizedUrl = resized;
+                entry.questionImageResizedUrl = resized.url;
+                if (entry.questionImageScale === null) {
+                    const scale = parseScale(resized.fontScale);
+                    if (scale !== null) {
+                        entry.questionImageScale = scale;
+                    }
+                }
             } catch (error) {
                 console.warn('Unable to regenerate resized question image during import', error);
             }
@@ -727,20 +772,40 @@ async function buildEntryFromImport(raw) {
         const info = await saveDataUrl(raw.answerImageDataUrl, `${entry.id}-answer`);
         entry.answerImageUrl = info.photoUrl;
         entry.answerImageResizedUrl = info.photoResizedUrl;
+        const scale = parseScale(info.photoScale);
+        if (scale !== null) {
+            entry.answerImageScale = scale;
+        }
     } else if (raw.answerImage && !entry.answerImageUrl) {
         const info = await saveDataUrl(raw.answerImage, `${entry.id}-answer`);
         entry.answerImageUrl = info.photoUrl;
         entry.answerImageResizedUrl = info.photoResizedUrl;
+        const scale = parseScale(info.photoScale);
+        if (scale !== null) {
+            entry.answerImageScale = scale;
+        }
     } else if (raw.answerImageUrl) {
         entry.answerImageUrl = raw.answerImageUrl;
         if (raw.answerImageResizedUrl) {
             entry.answerImageResizedUrl = raw.answerImageResizedUrl;
+            if (entry.answerImageScale === null) {
+                const scale = parseScale(raw.answerImageScale);
+                if (scale !== null) {
+                    entry.answerImageScale = scale;
+                }
+            }
         } else if (raw.answerImageUrl.startsWith('/uploads/')) {
             const relative = raw.answerImageUrl.slice(1);
             const sourcePath = path.join(ROOT_DIR, relative);
             try {
                 const resized = await generateResizedVariant(sourcePath);
-                entry.answerImageResizedUrl = resized;
+                entry.answerImageResizedUrl = resized.url;
+                if (entry.answerImageScale === null) {
+                    const scale = parseScale(resized.fontScale);
+                    if (scale !== null) {
+                        entry.answerImageScale = scale;
+                    }
+                }
             } catch (error) {
                 console.warn('Unable to regenerate resized answer image during import', error);
             }
@@ -751,20 +816,40 @@ async function buildEntryFromImport(raw) {
         const info = await saveDataUrl(raw.originalImageDataUrl, `${entry.id}-original`);
         entry.originalImageUrl = info.photoUrl;
         entry.originalImageResizedUrl = info.photoResizedUrl;
+        const scale = parseScale(info.photoScale);
+        if (scale !== null) {
+            entry.originalImageScale = scale;
+        }
     } else if (raw.originalImage && !entry.originalImageUrl) {
         const info = await saveDataUrl(raw.originalImage, `${entry.id}-original`);
         entry.originalImageUrl = info.photoUrl;
         entry.originalImageResizedUrl = info.photoResizedUrl;
+        const scale = parseScale(info.photoScale);
+        if (scale !== null) {
+            entry.originalImageScale = scale;
+        }
     } else if (raw.originalImageUrl) {
         entry.originalImageUrl = raw.originalImageUrl;
         if (raw.originalImageResizedUrl) {
             entry.originalImageResizedUrl = raw.originalImageResizedUrl;
+            if (entry.originalImageScale === null) {
+                const scale = parseScale(raw.originalImageScale);
+                if (scale !== null) {
+                    entry.originalImageScale = scale;
+                }
+            }
         } else if (raw.originalImageUrl.startsWith('/uploads/')) {
             const relative = raw.originalImageUrl.slice(1);
             const sourcePath = path.join(ROOT_DIR, relative);
             try {
                 const resized = await generateResizedVariant(sourcePath);
-                entry.originalImageResizedUrl = resized;
+                entry.originalImageResizedUrl = resized.url;
+                if (entry.originalImageScale === null) {
+                    const scale = parseScale(resized.fontScale);
+                    if (scale !== null) {
+                        entry.originalImageScale = scale;
+                    }
+                }
             } catch (error) {
                 console.warn('Unable to regenerate resized original image during import', error);
             }
@@ -833,7 +918,7 @@ async function removeMedia(...urls) {
 async function saveDataUrl(dataUrl, id) {
     const matches = /^data:(.+);base64,(.+)$/.exec(dataUrl);
     if (!matches) {
-        return { photoUrl: null, photoResizedUrl: null };
+        return { photoUrl: null, photoResizedUrl: null, photoScale: null };
     }
 
     const mime = matches[1];
@@ -848,10 +933,21 @@ async function saveDataUrl(dataUrl, id) {
 
 async function finalizePhotoStorage(filePath, filename) {
     const photoUrl = `/uploads/${filename}`;
-    const photoResizedUrl = await generateResizedVariant(filePath);
+    const resized = await generateResizedVariant(filePath);
+    let photoScale = null;
+    if (resized && typeof resized.fontScale === 'number') {
+        photoScale = resized.fontScale;
+    } else {
+        const analysis = await analyzeImageFontScale(filePath);
+        if (analysis && typeof analysis.scale === 'number') {
+            photoScale = analysis.scale;
+        }
+    }
+
     return {
         photoUrl,
-        photoResizedUrl
+        photoResizedUrl: resized ? resized.url : null,
+        photoScale
     };
 }
 
@@ -861,12 +957,11 @@ async function generateResizedVariant(filePath) {
         const resizedName = `${name}-a4${ext}`;
         const resizedPath = path.join(dir, resizedName);
 
-        const image = sharp(filePath);
-        const metadata = await image.metadata();
+        const metadata = await sharp(filePath, { failOnError: false }).metadata();
         if (!metadata.width || metadata.width <= TARGET_PRINT_WIDTH_PX) {
             await fsp.copyFile(filePath, resizedPath);
         } else {
-            await sharp(filePath)
+            await sharp(filePath, { failOnError: false })
                 .resize({
                     width: TARGET_PRINT_WIDTH_PX,
                     fit: 'inside',
@@ -876,11 +971,162 @@ async function generateResizedVariant(filePath) {
                 .toFile(resizedPath);
         }
 
-        return `/uploads/${resizedName}`;
+        const analysis = await analyzeImageFontScale(resizedPath);
+        return {
+            url: `/uploads/${resizedName}`,
+            path: resizedPath,
+            fontScale: analysis && typeof analysis.scale === 'number' ? analysis.scale : null
+        };
     } catch (error) {
         console.warn('Failed to create resized variant', error);
+        return { url: null, path: null, fontScale: null };
+    }
+}
+
+async function analyzeImageFontScale(filePath) {
+    try {
+        const analyzer = sharp(filePath, { failOnError: false }).rotate();
+        const metadata = await analyzer.metadata();
+        const { data, info } = await analyzer
+            .clone()
+            .greyscale()
+            .normalize()
+            .threshold(180)
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+        const { width, height } = info;
+        if (!width || !height || !data) {
+            return {
+                scale: 1,
+                measuredHeight: null,
+                targetHeight: TARGET_TEXT_HEIGHT_PX,
+                density: metadata?.density || null,
+                analyzedAt: new Date().toISOString(),
+                confidence: 0
+            };
+        }
+
+        const activeThreshold = 0.12;
+        const minRunLength = 3;
+        const rowFractions = new Array(height);
+
+        for (let y = 0; y < height; y += 1) {
+            let darkPixels = 0;
+            const offset = y * width;
+            for (let x = 0; x < width; x += 1) {
+                if (data[offset + x] < 128) {
+                    darkPixels += 1;
+                }
+            }
+            rowFractions[y] = darkPixels / width;
+        }
+
+        const runLengths = [];
+        let currentRun = 0;
+        for (let y = 0; y < height; y += 1) {
+            if (rowFractions[y] >= activeThreshold) {
+                currentRun += 1;
+            } else if (currentRun > 0) {
+                runLengths.push(currentRun);
+                currentRun = 0;
+            }
+        }
+        if (currentRun > 0) {
+            runLengths.push(currentRun);
+        }
+
+        const filtered = runLengths.filter((length) => length >= minRunLength);
+        if (!filtered.length) {
+            return {
+                scale: 1,
+                measuredHeight: null,
+                targetHeight: TARGET_TEXT_HEIGHT_PX,
+                density: metadata?.density || null,
+                analyzedAt: new Date().toISOString(),
+                confidence: 0
+            };
+        }
+
+        const measuredHeight = median(filtered);
+        if (!measuredHeight || measuredHeight <= 0) {
+            return {
+                scale: 1,
+                measuredHeight: null,
+                targetHeight: TARGET_TEXT_HEIGHT_PX,
+                density: metadata?.density || null,
+                analyzedAt: new Date().toISOString(),
+                confidence: 0
+            };
+        }
+
+        const rawScale = TARGET_TEXT_HEIGHT_PX / measuredHeight;
+        const scale = clamp(rawScale, MIN_IMAGE_SCALE, MAX_IMAGE_SCALE);
+
+        const confidence = filtered.length / runLengths.length || 1;
+
+        return {
+            scale,
+            measuredHeight,
+            targetHeight: TARGET_TEXT_HEIGHT_PX,
+            density: metadata?.density || null,
+            analyzedAt: new Date().toISOString(),
+            confidence
+        };
+    } catch (error) {
+        console.warn('Unable to analyze font scale', filePath, error);
         return null;
     }
+}
+
+async function ensureImageScale(entry, kind) {
+    const scaleKey = `${kind}ImageScale`;
+    if (typeof entry[scaleKey] === 'number' && entry[scaleKey] > 0) {
+        return { scale: entry[scaleKey], updated: false };
+    }
+
+    const resizedKey = `${kind}ImageResizedUrl`;
+    const originalKey = `${kind}ImageUrl`;
+    const url = entry[resizedKey] || entry[originalKey];
+    if (!url) {
+        return { scale: null, updated: false };
+    }
+
+    const filePath = await resolveUploadPath(url);
+    if (!filePath) {
+        return { scale: null, updated: false };
+    }
+
+    const analysis = await analyzeImageFontScale(filePath);
+    const computedScale = analysis && typeof analysis.scale === 'number' ? analysis.scale : 1;
+    entry[scaleKey] = clamp(computedScale, MIN_IMAGE_SCALE, MAX_IMAGE_SCALE);
+    entry.updatedAt = new Date().toISOString();
+    return { scale: entry[scaleKey], updated: true };
+}
+
+function median(values) {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 0) {
+        return (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+    return sorted[middle];
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function parseScale(value) {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    const numeric = typeof value === 'number' ? value : Number.parseFloat(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+        return null;
+    }
+    return clamp(numeric, MIN_IMAGE_SCALE, MAX_IMAGE_SCALE);
 }
 
 function normalizeDateInput(value, fallbackIso) {
@@ -1038,6 +1284,7 @@ async function createPaperExport(entries) {
 
     const doc = new Document({ sections: [] });
     const children = [];
+    const updatedEntryIds = new Set();
 
     for (const [index, entry] of entries.entries()) {
         if (index > 0) {
@@ -1059,23 +1306,64 @@ async function createPaperExport(entries) {
         const metaText = `【${metaParts.join(' / ')}】`;
         children.push(
             new Paragraph({
-                children: [new TextRun({ text: metaText, italics: true, size: 18 })],
+                children: [new TextRun({ text: metaText, italics: true, size: DOCX_FONT_SIZE })],
                 spacing: { after: 200 }
             })
         );
 
         const hasQuestionText = Boolean(entry.questionText && entry.questionText.trim());
         if (hasQuestionText) {
-            const questionParagraph = createPlainParagraph(entry.questionText, { skipWhenEmpty: false, fallback: '（未提供）' });
+            const questionParagraph = createPlainParagraph(entry.questionText, {
+                skipWhenEmpty: false,
+                fallback: '（未提供）',
+                fontSize: DOCX_FONT_SIZE,
+                paragraphSpacing: { after: 200 }
+            });
             if (questionParagraph) {
                 children.push(questionParagraph);
             }
         } else {
-            const questionImage = await loadImageForDoc(doc, entry.questionImageResizedUrl || entry.questionImageUrl);
-            if (questionImage) {
-                children.push(new Paragraph({ children: [questionImage] }));
+            const questionImageUrl = entry.questionImageResizedUrl || entry.questionImageUrl;
+            let ensureResult = { scale: parseScale(entry.questionImageScale), updated: false };
+            if (ensureResult.scale === null && questionImageUrl) {
+                ensureResult = await ensureImageScale(entry, 'question');
+            }
+
+            let imageScale = parseScale(ensureResult.scale);
+            if (imageScale === null) {
+                imageScale = 1;
             } else {
-                const fallbackParagraph = createPlainParagraph('', { skipWhenEmpty: false, fallback: '（未提供）' });
+                const previousScale = entry.questionImageScale;
+                entry.questionImageScale = imageScale;
+                if (previousScale !== imageScale && entry.id) {
+                    entry.updatedAt = new Date().toISOString();
+                    updatedEntryIds.add(entry.id);
+                }
+            }
+
+            if (ensureResult.updated && entry.id) {
+                updatedEntryIds.add(entry.id);
+            }
+
+            const questionImage = await loadImageForDoc(doc, questionImageUrl, {
+                scale: imageScale,
+                baseMaxWidth: PAPER_IMAGE_BASE_WIDTH
+            });
+
+            if (questionImage) {
+                children.push(
+                    new Paragraph({
+                        children: [questionImage],
+                        spacing: { after: 200 }
+                    })
+                );
+            } else {
+                const fallbackParagraph = createPlainParagraph('', {
+                    skipWhenEmpty: false,
+                    fallback: '（未提供）',
+                    fontSize: DOCX_FONT_SIZE,
+                    paragraphSpacing: { after: 200 }
+                });
                 if (fallbackParagraph) {
                     children.push(fallbackParagraph);
                 }
@@ -1085,27 +1373,36 @@ async function createPaperExport(entries) {
 
     doc.addSection({ children });
 
-    return Packer.toBuffer(doc);
+    const buffer = await Packer.toBuffer(doc);
+    return { buffer, updatedEntryIds: Array.from(updatedEntryIds) };
 }
 
-async function loadImageForDoc(doc, url) {
+async function loadImageForDoc(doc, url, options = {}) {
     if (!url) return null;
     const filePath = await resolveUploadPath(url);
     if (!filePath) return null;
 
     try {
-        const { data, info } = await sharp(filePath).rotate().toBuffer({ resolveWithObject: true });
+        const baseMaxWidth = options.baseMaxWidth || 600;
+        const scaleOption = parseScale(options.scale);
+        const effectiveScale = scaleOption === null ? 1 : scaleOption;
+
+        const { data, info } = await sharp(filePath, { failOnError: false })
+            .rotate()
+            .toBuffer({ resolveWithObject: true });
         let { width, height } = info;
         if (width && height) {
-            const maxWidth = 600;
-            if (width > maxWidth) {
-                const scale = maxWidth / width;
-                width = Math.round(width * scale);
-                height = Math.round(height * scale);
+            let targetWidth = width * effectiveScale;
+            let targetHeight = height * effectiveScale;
+            const maxWidth = baseMaxWidth * Math.max(1, effectiveScale);
+            if (targetWidth > maxWidth) {
+                const adjust = maxWidth / targetWidth;
+                targetWidth *= adjust;
+                targetHeight *= adjust;
             }
-        }
 
-        if (width && height) {
+            width = Math.max(1, Math.round(targetWidth));
+            height = Math.max(1, Math.round(targetHeight));
             return new ImageRun({ data, transformation: { width, height } });
         }
         return new ImageRun({ data });
@@ -1139,7 +1436,13 @@ function createLabeledParagraph(label, text, options = {}) {
 }
 
 function createPlainParagraph(text, options = {}) {
-    const { skipWhenEmpty = false, fallback = '（未填写）' } = options;
+    const {
+        skipWhenEmpty = false,
+        fallback = '（未填写）',
+        fontSize = null,
+        font = null,
+        paragraphSpacing = null
+    } = options;
     const value = typeof text === 'string' ? text.trim() : '';
     if (!value && skipWhenEmpty) {
         return null;
@@ -1153,10 +1456,22 @@ function createPlainParagraph(text, options = {}) {
         if (index > 0) {
             runs.push(new TextRun({ break: 1 }));
         }
-        runs.push(new TextRun({ text: line }));
+        const runOptions = { text: line };
+        if (fontSize) {
+            runOptions.size = fontSize;
+        }
+        if (font) {
+            runOptions.font = font;
+        }
+        runs.push(new TextRun(runOptions));
     });
 
-    return new Paragraph({ children: runs });
+    const paragraphOptions = { children: runs };
+    if (paragraphSpacing) {
+        paragraphOptions.spacing = paragraphSpacing;
+    }
+
+    return new Paragraph(paragraphOptions);
 }
 
 function formatDateOnly(value) {
