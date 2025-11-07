@@ -362,6 +362,20 @@
                             <h4>题目</h4>
                             <p class="entry-question-text"></p>
                             <figure class="entry-question-image"></figure>
+                            <div class="entry-image-zoom entry-image-zoom--question" hidden>
+                                <label>
+                                    <span>图片缩放</span>
+                                    <input
+                                        type="range"
+                                        class="entry-image-zoom__input"
+                                        min="50"
+                                        max="200"
+                                        step="1"
+                                        value="100"
+                                    />
+                                    <output class="entry-image-zoom__value">100%</output>
+                                </label>
+                            </div>
                         </section>
                         <section class="entry-section entry-section--answer">
                             <h4>答案</h4>
