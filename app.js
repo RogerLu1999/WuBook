@@ -18,6 +18,10 @@ const state = {
     }
 };
 
+const MIN_IMAGE_ZOOM = 50;
+const MAX_IMAGE_ZOOM = 200;
+const DEFAULT_IMAGE_ZOOM = 100;
+
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
 
 const entryForm = document.getElementById('entry-form');
@@ -447,7 +451,36 @@ entriesContainer.addEventListener('click', (event) => {
     }
 });
 
+entriesContainer.addEventListener('input', (event) => {
+    const slider = event.target.closest('.entry-image-zoom__input');
+    if (!slider) return;
+
+    const percent = normalizeZoomPercent(slider.value);
+    slider.value = String(percent);
+
+    const control = slider.closest('.entry-image-zoom');
+    const valueEl = control?.querySelector('.entry-image-zoom__value');
+    if (valueEl) {
+        valueEl.textContent = `${percent}%`;
+    }
+
+    const detailRow = slider.closest('.entry-detail-row');
+    const figure = detailRow?.querySelector('.entry-question-image');
+    if (figure) {
+        figure.style.setProperty('--image-zoom', percent);
+    }
+});
+
 entriesContainer.addEventListener('change', (event) => {
+    const slider = event.target.closest('.entry-image-zoom__input');
+    if (slider) {
+        const id = slider.dataset.entryId;
+        if (id) {
+            updateQuestionImageZoom(id, normalizeZoomPercent(slider.value), slider);
+        }
+        return;
+    }
+
     const checkbox = event.target.closest('.entry-select-input');
     if (!checkbox) return;
 
@@ -841,6 +874,10 @@ function renderEntries() {
         const questionSection = detailRow.querySelector('.entry-section--question');
         const questionTextEl = detailRow.querySelector('.entry-question-text');
         const questionFigure = detailRow.querySelector('.entry-question-image');
+        const questionZoomControl = detailRow.querySelector('.entry-image-zoom--question');
+        const questionZoomInput = questionZoomControl?.querySelector('.entry-image-zoom__input');
+        const questionZoomValue = questionZoomControl?.querySelector('.entry-image-zoom__value');
+        const questionZoomPercent = scaleToZoomPercent(entry.questionImageScale);
         const answerSection = detailRow.querySelector('.entry-section--answer');
         const answerTextEl = detailRow.querySelector('.entry-answer-text');
         const answerFigure = detailRow.querySelector('.entry-answer-image');
@@ -856,6 +893,7 @@ function renderEntries() {
         }
         if (questionFigure) {
             questionFigure.innerHTML = '';
+            questionFigure.style.setProperty('--image-zoom', questionZoomPercent);
         }
         const hasQuestionImage = Boolean(entry.questionImageSrc);
         if (hasQuestionImage && questionFigure) {
@@ -865,8 +903,23 @@ function renderEntries() {
                 '查看题目图片'
             );
             questionFigure.hidden = false;
-        } else if (questionFigure) {
-            questionFigure.hidden = true;
+            if (questionZoomControl) {
+                questionZoomControl.hidden = false;
+            }
+        } else {
+            if (questionFigure) {
+                questionFigure.hidden = true;
+            }
+            if (questionZoomControl) {
+                questionZoomControl.hidden = true;
+            }
+        }
+        if (questionZoomInput) {
+            questionZoomInput.value = String(questionZoomPercent);
+            questionZoomInput.dataset.entryId = entry.id;
+        }
+        if (questionZoomValue) {
+            questionZoomValue.textContent = `${questionZoomPercent}%`;
         }
         if (questionSection) {
             questionSection.hidden = !hasQuestionText && !hasQuestionImage;
@@ -986,6 +1039,99 @@ function toggleEntryDetails(id, triggerButton) {
     }
 }
 
+async function updateQuestionImageZoom(id, zoomPercent, slider) {
+    const entryIndex = state.entries.findIndex((item) => item.id === id);
+    if (entryIndex === -1) {
+        return;
+    }
+
+    const previousScale = state.entries[entryIndex].questionImageScale;
+    const previousPercent = scaleToZoomPercent(previousScale);
+    const targetPercent = normalizeZoomPercent(zoomPercent);
+    const targetScale = zoomPercentToScale(targetPercent);
+
+    if (slider) {
+        slider.disabled = true;
+        slider.setAttribute('aria-busy', 'true');
+    }
+
+    try {
+        const response = await fetch(`/api/entries/${encodeURIComponent(id)}/question-image-scale`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zoomPercent: targetPercent })
+        });
+        if (!response.ok) {
+            throw new Error('Failed to update zoom factor');
+        }
+        const payload = await response.json();
+        const normalized = normalizeEntry(payload);
+        state.entries[entryIndex] = { ...state.entries[entryIndex], ...normalized };
+        let appliedScale = state.entries[entryIndex].questionImageScale;
+        if (!Number.isFinite(appliedScale)) {
+            appliedScale = targetScale;
+        }
+        state.entries[entryIndex].questionImageScale = appliedScale;
+        const appliedPercent = scaleToZoomPercent(appliedScale);
+        updateQuestionImageZoomUI(id, appliedPercent);
+        refreshEntryUpdatedAt(state.entries[entryIndex]);
+    } catch (error) {
+        console.error(error);
+        alert('无法保存图片缩放设置。');
+        state.entries[entryIndex].questionImageScale = previousScale;
+        updateQuestionImageZoomUI(id, previousPercent);
+    } finally {
+        if (slider) {
+            slider.disabled = false;
+            slider.removeAttribute('aria-busy');
+        }
+    }
+}
+
+function updateQuestionImageZoomUI(id, percent) {
+    const { detailRow } = getEntryRows(id);
+    if (!detailRow) {
+        return;
+    }
+    const slider = detailRow.querySelector('.entry-image-zoom__input');
+    if (slider) {
+        slider.value = String(percent);
+    }
+    const valueEl = detailRow.querySelector('.entry-image-zoom__value');
+    if (valueEl) {
+        valueEl.textContent = `${percent}%`;
+    }
+    const figure = detailRow.querySelector('.entry-question-image');
+    if (figure) {
+        figure.style.setProperty('--image-zoom', percent);
+    }
+}
+
+function refreshEntryUpdatedAt(entry) {
+    if (!entry || !entry.id) {
+        return;
+    }
+    const { summaryRow, detailRow } = getEntryRows(entry.id);
+    const updatedCell = summaryRow?.querySelector('.entry-cell--updated');
+    if (updatedCell) {
+        if (entry.updatedAt) {
+            updatedCell.textContent = formatRelativeTime(entry.updatedAt);
+            updatedCell.title = new Date(entry.updatedAt).toLocaleString();
+        } else {
+            updatedCell.textContent = '—';
+            updatedCell.removeAttribute('title');
+        }
+    }
+
+    const updatedDetailEl = detailRow?.querySelector('.entry-detail__updated');
+    if (updatedDetailEl) {
+        updatedDetailEl.dataset.label = '最近更新';
+        updatedDetailEl.textContent = entry.updatedAt
+            ? new Date(entry.updatedAt).toLocaleString()
+            : '—';
+    }
+}
+
 function appendImageLink(container, src, label) {
     if (!container) return;
     const image = document.createElement('img');
@@ -1004,6 +1150,29 @@ function truncateText(text, limit) {
     if (!text) return '';
     if (text.length <= limit) return text;
     return `${text.slice(0, limit)}…`;
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+function normalizeZoomPercent(value) {
+    const numeric = typeof value === 'number' ? value : Number.parseFloat(value);
+    if (!Number.isFinite(numeric)) {
+        return DEFAULT_IMAGE_ZOOM;
+    }
+    return clamp(Math.round(numeric), MIN_IMAGE_ZOOM, MAX_IMAGE_ZOOM);
+}
+
+function scaleToZoomPercent(scale) {
+    if (!Number.isFinite(scale)) {
+        return DEFAULT_IMAGE_ZOOM;
+    }
+    return normalizeZoomPercent(scale * 100);
+}
+
+function zoomPercentToScale(percent) {
+    return normalizeZoomPercent(percent) / 100;
 }
 
 function renderActivityLog() {
@@ -2066,7 +2235,7 @@ function normalizeEntry(raw) {
         questionImageSrc: resolveMediaUrl(questionPreview),
         questionImageOriginalSrc: resolveMediaUrl(questionImageUrl),
         questionImageResizedSrc: resolveMediaUrl(questionImageResizedUrl),
-        questionImageScale: Number.isFinite(raw.questionImageScale) ? raw.questionImageScale : null,
+        questionImageScale: zoomPercentToScale(scaleToZoomPercent(raw.questionImageScale)),
         answerImageUrl,
         answerImageResizedUrl,
         answerImageSrc: resolveMediaUrl(answerPreview),

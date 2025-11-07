@@ -27,7 +27,8 @@ const PAPER_META_FONT_SIZE = PAPER_META_FONT_POINT_SIZE * 2;
 const SCREEN_DPI = 96;
 const TARGET_TEXT_HEIGHT_PX = Math.round((TARGET_FONT_POINT_SIZE / 72) * SCREEN_DPI);
 const MIN_IMAGE_SCALE = 0.5;
-const MAX_IMAGE_SCALE = 2.5;
+const MAX_IMAGE_SCALE = 2;
+const DEFAULT_IMAGE_SCALE = 1;
 const PAPER_IMAGE_BASE_WIDTH = 600;
 
 const SUBJECT_PREFIX_MAP = new Map([
@@ -414,6 +415,52 @@ app.put('/api/entries/:id', async (req, res) => {
     }
 });
 
+app.patch('/api/entries/:id/question-image-scale', async (req, res) => {
+    try {
+        const percentValue =
+            req.body?.zoomPercent ??
+            req.body?.zoom ??
+            req.body?.percent ??
+            req.body?.value ??
+            req.body?.questionImageScale ??
+            null;
+        const numericPercent =
+            typeof percentValue === 'number' ? percentValue : Number.parseFloat(percentValue);
+
+        if (!Number.isFinite(numericPercent)) {
+            return res.status(400).json({ error: 'Invalid zoom factor' });
+        }
+
+        const entries = await readEntries();
+        const index = entries.findIndex((entry) => entry.id === req.params.id);
+        if (index === -1) {
+            await logAction('update-question-image-scale', 'error', {
+                id: req.params.id,
+                message: 'Entry not found'
+            });
+            return res.status(404).json({ error: 'Entry not found' });
+        }
+
+        const scale = clamp(numericPercent / 100, MIN_IMAGE_SCALE, MAX_IMAGE_SCALE);
+        entries[index].questionImageScale = scale;
+        entries[index].updatedAt = new Date().toISOString();
+
+        await writeEntries(entries);
+        await logAction('update-question-image-scale', 'success', {
+            id: entries[index].id,
+            questionCode: entries[index].questionCode,
+            scale,
+            zoomPercent: Math.round(scale * 100)
+        });
+
+        res.json(entries[index]);
+    } catch (error) {
+        console.error(error);
+        await logAction('update-question-image-scale', 'error', { message: error.message });
+        res.status(500).json({ error: 'Failed to update zoom factor' });
+    }
+});
+
 app.delete('/api/entries/:id', async (req, res) => {
     try {
         const entries = await readEntries();
@@ -710,6 +757,12 @@ async function buildEntry(body, files = {}, options = {}) {
         entry.originalImageResizedUrl ||
         (typeof body.originalImageResizedUrl === 'string' ? body.originalImageResizedUrl : null);
 
+    entry.questionImageScale = clamp(
+        entry.questionImageScale === null ? DEFAULT_IMAGE_SCALE : entry.questionImageScale,
+        MIN_IMAGE_SCALE,
+        MAX_IMAGE_SCALE
+    );
+
     entry.summary = entry.summary ||
         generateQuestionSummary(entry.questionText, Boolean(entry.questionImageUrl || entry.questionImageResizedUrl));
 
@@ -858,6 +911,12 @@ async function buildEntryFromImport(raw) {
         }
     }
 
+    entry.questionImageScale = clamp(
+        entry.questionImageScale === null ? DEFAULT_IMAGE_SCALE : entry.questionImageScale,
+        MIN_IMAGE_SCALE,
+        MAX_IMAGE_SCALE
+    );
+
     entry.summary = entry.summary ||
         generateQuestionSummary(entry.questionText, Boolean(entry.questionImageUrl || entry.questionImageResizedUrl));
 
@@ -877,6 +936,9 @@ async function readEntries() {
             needsWrite = true;
         }
         if (ensureEntryMetadata(parsed)) {
+            needsWrite = true;
+        }
+        if (ensureQuestionImageScales(parsed)) {
             needsWrite = true;
         }
         if (needsWrite) {
@@ -1183,6 +1245,26 @@ function ensureEntryMetadata(entries) {
         const summary = generateQuestionSummary(entry.questionText, hasImage);
         if (entry.summary !== summary) {
             entry.summary = summary;
+            updated = true;
+        }
+    }
+    return updated;
+}
+
+function ensureQuestionImageScales(entries) {
+    let updated = false;
+    for (const entry of Array.isArray(entries) ? entries : []) {
+        if (!entry || typeof entry !== 'object') {
+            continue;
+        }
+        const current = Number.isFinite(entry.questionImageScale) ? entry.questionImageScale : null;
+        const clamped = clamp(
+            current === null ? DEFAULT_IMAGE_SCALE : current,
+            MIN_IMAGE_SCALE,
+            MAX_IMAGE_SCALE
+        );
+        if (entry.questionImageScale !== clamped) {
+            entry.questionImageScale = clamped;
             updated = true;
         }
     }
