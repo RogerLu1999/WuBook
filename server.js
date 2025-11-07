@@ -22,6 +22,8 @@ const TARGET_PRINT_WIDTH_PX = Math.round((A4_WIDTH_MM / MM_PER_INCH) * PRINT_DPI
 const MIN_OCR_WIDTH = 1200;
 const TARGET_FONT_POINT_SIZE = 12;
 const DOCX_FONT_SIZE = TARGET_FONT_POINT_SIZE * 2;
+const PAPER_META_FONT_POINT_SIZE = 8;
+const PAPER_META_FONT_SIZE = PAPER_META_FONT_POINT_SIZE * 2;
 const SCREEN_DPI = 96;
 const TARGET_TEXT_HEIGHT_PX = Math.round((TARGET_FONT_POINT_SIZE / 72) * SCREEN_DPI);
 const MIN_IMAGE_SCALE = 0.5;
@@ -1306,7 +1308,7 @@ async function createPaperExport(entries) {
         const metaText = `【${metaParts.join(' / ')}】`;
         children.push(
             new Paragraph({
-                children: [new TextRun({ text: metaText, italics: true, size: DOCX_FONT_SIZE })],
+                children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
                 spacing: { after: 200 }
             })
         );
