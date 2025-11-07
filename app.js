@@ -18,8 +18,8 @@ const state = {
     }
 };
 
-const MIN_IMAGE_ZOOM = 50;
-const MAX_IMAGE_ZOOM = 200;
+const MIN_IMAGE_ZOOM = 30;
+const MAX_IMAGE_ZOOM = 120;
 const DEFAULT_IMAGE_ZOOM = 100;
 
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
