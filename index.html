@@ -20,6 +20,13 @@
                     <div class="panel-links">
                         <a
                             href="#"
+                            id="open-photo-check-panel"
+                            class="panel-link"
+                            aria-controls="photo-check-panel"
+                            aria-expanded="false"
+                        >拍照检查</a>
+                        <a
+                            href="#"
                             id="open-wizard-panel"
                             class="panel-link"
                             aria-controls="wizard-panel"
@@ -199,6 +206,33 @@
                 <input type="file" id="import-input" accept="application/json" hidden />
                 <button id="clear-btn" class="btn btn-danger">Clear All</button>
             </div>
+        </section>
+
+        <section class="panel" id="photo-check-panel" aria-labelledby="photo-check-title" hidden>
+            <div class="panel-header">
+                <div class="panel-header__top">
+                    <h2 id="photo-check-title">拍照检查</h2>
+                    <a href="#" id="close-photo-check-panel" class="panel-link">返回错题列表</a>
+                </div>
+                <p>上传带有题目与手写答案的照片，让 AI 自动分题并核对答案。</p>
+            </div>
+
+            <form id="photo-check-form" class="form-grid photo-check-form">
+                <label class="field field--span-2">
+                    <span>待检查的照片</span>
+                    <input type="file" id="photo-check-image" name="image" accept="image/*" required />
+                    <small>支持包含多道题目的整页照片，需含印刷体题面和手写答案。</small>
+                </label>
+                <button type="submit" id="photo-check-submit" class="btn btn-primary field--span-2">开始检查</button>
+            </form>
+
+            <p id="photo-check-status" class="photo-check-status" role="status" aria-live="polite"></p>
+
+            <section id="photo-check-results" class="photo-check-results" hidden>
+                <h3>检查报告</h3>
+                <p id="photo-check-summary" class="photo-check-summary"></p>
+                <ol id="photo-check-report" class="photo-check-report"></ol>
+            </section>
         </section>
 
         <section class="panel" id="wizard-panel" aria-labelledby="wizard-title" hidden>

@@ -155,6 +155,32 @@ app.post('/api/ocr', ocrUpload.single('image'), async (req, res) => {
     }
 });
 
+app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: '缺少需要分析的照片。' });
+    }
+
+    try {
+        const preparedImage = await preparePhotoCheckImage(req.file.buffer);
+        const analysis = await analyzePhotoWithQwen(preparedImage);
+        const normalized = normalizePhotoCheckAnalysis(analysis);
+
+        await logAction('photo-check', 'success', {
+            provider: 'qwen',
+            total: normalized.summary.total,
+            correct: normalized.summary.correct,
+            incorrect: normalized.summary.incorrect,
+            unknown: normalized.summary.unknown
+        });
+
+        res.json(normalized);
+    } catch (error) {
+        console.error(error);
+        await logAction('photo-check', 'error', { message: error.message });
+        res.status(500).json({ error: error.message || '无法完成拍照检查。' });
+    }
+});
+
 async function recognizeTextWithQwen(buffer) {
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) {
@@ -360,6 +386,257 @@ function cleanRecognizedText(text) {
     );
 
     return lines.join('\n').trim();
+}
+
+async function preparePhotoCheckImage(buffer) {
+    return sharp(buffer, { failOnError: false }).rotate().toFormat('png').toBuffer();
+}
+
+async function analyzePhotoWithQwen(buffer) {
+    const apiKey = process.env.DASHSCOPE_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 Qwen API Key 配置。');
+    }
+
+    if (typeof fetch !== 'function') {
+        throw new Error('当前运行环境不支持向 Qwen 发起请求。');
+    }
+
+    const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
+    const model = process.env.QWEN_VL_MODEL || 'qwen-vl-max';
+    const base64Image = buffer.toString('base64');
+
+    const systemPrompt =
+        '你是一位严谨的中学老师，需要根据上传的题目照片整理错题检查报告。请始终输出结构化 JSON。';
+    const userPrompt = `请完成以下任务：
+1. 仔细观察图片，将其中的每一道题目拆分为独立的小题；识别题干（印刷体）和学生的手写答案。
+2. 为每道题目写出清晰的题干文本，并转写学生的答案。如果缺失，请写出你能识别的部分。
+3. 根据题干独立求解或推导标准答案，填入“model_answer”。
+4. 对比学生答案与参考答案，判断正误：正确写 true，错误写 false，如无法判断写 null，并在分析里说明原因。
+5. 为每道题目撰写一句简洁分析，指出核对结果或解题要点。
+
+请仅返回 JSON，结构如下：
+{
+  "problems": [
+    {
+      "question": "题干文字",
+      "student_answer": "学生手写答案文字",
+      "model_answer": "你的参考答案",
+      "is_correct": true/false/null,
+      "analysis": "核对说明或解析"
+    }
+  ],
+  "summary": {
+    "total": 题目总数,
+    "correct": 正确数量,
+    "incorrect": 错误数量,
+    "unknown": 无法判断数量
+  }
+}`;
+
+    const payload = {
+        model,
+        input: {
+            messages: [
+                {
+                    role: 'system',
+                    content: [{ text: systemPrompt }]
+                },
+                {
+                    role: 'user',
+                    content: [
+                        { image: `data:image/png;base64,${base64Image}` },
+                        { text: userPrompt }
+                    ]
+                }
+            ]
+        },
+        parameters: {
+            result_format: 'text'
+        }
+    };
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = result?.message || `Qwen API 请求失败（${response.status}）`;
+        throw new Error(message);
+    }
+
+    if (result?.code && Number(result.code) !== 200) {
+        const message = result?.message || 'Qwen API 返回错误。';
+        throw new Error(message);
+    }
+
+    const text = extractTextFromQwenResponse(result);
+    if (!text) {
+        throw new Error('Qwen 未返回检查结果。');
+    }
+
+    const parsed = parsePhotoCheckJson(text);
+    if (!parsed) {
+        throw new Error('Qwen 返回结果格式不正确。');
+    }
+
+    return parsed;
+}
+
+function parsePhotoCheckJson(text) {
+    if (!text) return null;
+    const cleaned = text
+        .replace(/```json/gi, '```')
+        .replace(/```/g, '')
+        .trim();
+
+    try {
+        return JSON.parse(cleaned);
+    } catch (error) {
+        // fall through
+    }
+
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) {
+        return null;
+    }
+
+    const candidate = cleaned.slice(start, end + 1);
+    try {
+        return JSON.parse(candidate);
+    } catch (error) {
+        return null;
+    }
+}
+
+function normalizePhotoCheckAnalysis(raw) {
+    const problemsInput = Array.isArray(raw?.problems)
+        ? raw.problems
+        : Array.isArray(raw?.items)
+        ? raw.items
+        : [];
+
+    const normalizedProblems = problemsInput
+        .map((item, index) => normalizePhotoCheckProblem(item, index))
+        .filter(Boolean);
+
+    const summary = raw?.summary || {};
+    const inferredTotal = normalizedProblems.length;
+    const summaryTotalValue = Number(summary.total);
+    const summaryCorrectValue = Number(summary.correct);
+    const summaryIncorrectValue = Number(summary.incorrect);
+    const summaryUnknownValue = Number(summary.unknown);
+    const summaryTotal = Number.isFinite(summaryTotalValue) ? summaryTotalValue : inferredTotal;
+    const total = Math.max(summaryTotal, inferredTotal);
+    const summaryCorrect = Number.isFinite(summaryCorrectValue) ? summaryCorrectValue : null;
+    const summaryIncorrect = Number.isFinite(summaryIncorrectValue) ? summaryIncorrectValue : null;
+    const summaryUnknown = Number.isFinite(summaryUnknownValue) ? summaryUnknownValue : null;
+
+    const correct =
+        summaryCorrect != null
+            ? summaryCorrect
+            : normalizedProblems.filter((problem) => problem.isCorrect === true).length;
+    const incorrect =
+        summaryIncorrect != null
+            ? summaryIncorrect
+            : normalizedProblems.filter((problem) => problem.isCorrect === false).length;
+    const unknown =
+        summaryUnknown != null
+            ? summaryUnknown
+            : Math.max(0, total - correct - incorrect);
+
+    return {
+        problems: normalizedProblems,
+        summary: {
+            total,
+            correct,
+            incorrect,
+            unknown
+        }
+    };
+}
+
+function normalizePhotoCheckProblem(problem, index) {
+    if (!problem || typeof problem !== 'object') {
+        return null;
+    }
+
+    const question = sanitizePhotoCheckText(problem.question ?? problem.question_text ?? problem.prompt);
+    const studentAnswer = sanitizePhotoCheckText(
+        problem.student_answer ??
+            problem.studentAnswer ??
+            problem.student_response ??
+            problem.studentResponse
+    );
+    const modelAnswer = sanitizePhotoCheckText(
+        problem.model_answer ??
+            problem.modelAnswer ??
+            problem.solution ??
+            problem.referenceAnswer ??
+            problem.answer
+    );
+    const analysis = sanitizePhotoCheckText(
+        problem.analysis ?? problem.feedback ?? problem.reason ?? problem.explanation ?? problem.notes
+    );
+    const isCorrect = parsePhotoCheckBoolean(
+        problem.is_correct ?? problem.isCorrect ?? problem.correct ?? problem.verdict ?? problem.check
+    );
+
+    if (!question && !studentAnswer && !modelAnswer && !analysis) {
+        return null;
+    }
+
+    return {
+        index: index + 1,
+        question,
+        studentAnswer,
+        solvedAnswer: modelAnswer,
+        analysis,
+        isCorrect
+    };
+}
+
+function sanitizePhotoCheckText(value) {
+    if (value == null) {
+        return '';
+    }
+    const text = Array.isArray(value) ? value.join('\n') : String(value);
+    return text
+        .replace(/\r\n/g, '\n')
+        .replace(/[\u3000\u00A0]/g, ' ')
+        .replace(/\s+$/gm, '')
+        .trim();
+}
+
+function parsePhotoCheckBoolean(value) {
+    if (typeof value === 'boolean') {
+        return value;
+    }
+    if (typeof value === 'number') {
+        if (value === 1) return true;
+        if (value === 0) return false;
+    }
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) {
+            return null;
+        }
+        if (['正确', '对', '对的', '是', 'yes', 'true', '回答正确', '无误', 'right', 'correct'].includes(normalized)) {
+            return true;
+        }
+        if (['错误', '错', '错的', '否', 'no', 'false', '需要复查', '不对', 'wrong', 'incorrect'].includes(normalized)) {
+            return false;
+        }
+    }
+    return null;
 }
 
 app.put('/api/entries/:id', async (req, res) => {

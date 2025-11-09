@@ -63,6 +63,16 @@ const entryPanel = document.getElementById('entry-panel');
 const logPanel = document.getElementById('log-panel');
 const openEntryPanelLink = document.getElementById('open-entry-panel');
 const closeEntryPanelLink = document.getElementById('close-entry-panel');
+const photoCheckPanel = document.getElementById('photo-check-panel');
+const openPhotoCheckPanelLink = document.getElementById('open-photo-check-panel');
+const closePhotoCheckPanelLink = document.getElementById('close-photo-check-panel');
+const photoCheckForm = document.getElementById('photo-check-form');
+const photoCheckImageInput = document.getElementById('photo-check-image');
+const photoCheckSubmitButton = document.getElementById('photo-check-submit');
+const photoCheckStatus = document.getElementById('photo-check-status');
+const photoCheckResultsSection = document.getElementById('photo-check-results');
+const photoCheckSummary = document.getElementById('photo-check-summary');
+const photoCheckReport = document.getElementById('photo-check-report');
 const wizardPanel = document.getElementById('wizard-panel');
 const openWizardPanelLink = document.getElementById('open-wizard-panel');
 const closeWizardPanelLink = document.getElementById('close-wizard-panel');
@@ -116,6 +126,7 @@ setDefaultSubjectAndSemester();
 updateEntryFormSuggestions();
 hideEntryPanel({ scroll: false });
 hideWizardPanel({ scroll: false });
+hidePhotoCheckPanel({ scroll: false });
 hideLogPanel({ scroll: false });
 
 init();
@@ -188,6 +199,65 @@ openEntryPanelLink?.addEventListener('click', (event) => {
 closeEntryPanelLink?.addEventListener('click', (event) => {
     event.preventDefault();
     hideEntryPanel();
+});
+
+openPhotoCheckPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    showPhotoCheckPanel();
+});
+
+closePhotoCheckPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    hidePhotoCheckPanel();
+});
+
+photoCheckImageInput?.addEventListener('change', () => {
+    setPhotoCheckStatus('');
+});
+
+photoCheckForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!photoCheckImageInput || !photoCheckImageInput.files || photoCheckImageInput.files.length === 0) {
+        setPhotoCheckStatus('请先选择需要检查的照片。', 'error');
+        return;
+    }
+
+    const file = photoCheckImageInput.files[0];
+    const formData = new FormData();
+    formData.append('image', file);
+
+    if (photoCheckSubmitButton) {
+        photoCheckSubmitButton.disabled = true;
+    }
+
+    resetPhotoCheckResults();
+    setPhotoCheckStatus('正在分析照片，请稍候…');
+
+    try {
+        const response = await fetch('/api/photo-check', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            const message = data?.error || '无法完成检查，请稍后重试。';
+            throw new Error(message);
+        }
+
+        renderPhotoCheckResults(data);
+        const hasProblems = Array.isArray(data?.problems) && data.problems.length > 0;
+        setPhotoCheckStatus(hasProblems ? '检查完成，以下为识别结果。' : '检查完成，但未能识别出具体题目。', hasProblems ? 'success' : undefined);
+    } catch (error) {
+        console.error('Photo check failed', error);
+        resetPhotoCheckResults();
+        setPhotoCheckStatus(error?.message || '无法完成检查，请稍后重试。', 'error');
+    } finally {
+        if (photoCheckSubmitButton) {
+            photoCheckSubmitButton.disabled = false;
+        }
+    }
 });
 
 openWizardPanelLink?.addEventListener('click', (event) => {
@@ -1629,9 +1699,220 @@ function updatePaginationUI({ totalEntries, totalPages, page, pageSize, visibleC
     }
 }
 
+function showPhotoCheckPanel() {
+    if (!photoCheckPanel) return;
+    hideEntryPanel({ scroll: false });
+    hideWizardPanel({ scroll: false, reset: false });
+    hideLogPanel({ scroll: false });
+    if (!photoCheckPanel.hidden) return;
+    photoCheckPanel.hidden = false;
+    openPhotoCheckPanelLink?.setAttribute('aria-expanded', 'true');
+    photoCheckPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    photoCheckImageInput?.focus();
+}
+
+function hidePhotoCheckPanel(options = {}) {
+    if (!photoCheckPanel) return;
+    const { scroll = true, reset = true } = options;
+    openPhotoCheckPanelLink?.setAttribute('aria-expanded', 'false');
+    if (!photoCheckPanel.hidden) {
+        photoCheckPanel.hidden = true;
+    }
+    if (reset) {
+        resetPhotoCheckPanel();
+    }
+    if (scroll !== false) {
+        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function resetPhotoCheckPanel() {
+    photoCheckForm?.reset();
+    resetPhotoCheckResults();
+    setPhotoCheckStatus('');
+}
+
+function setPhotoCheckStatus(message, variant) {
+    if (!photoCheckStatus) return;
+    photoCheckStatus.textContent = message || '';
+    photoCheckStatus.classList.remove('is-error', 'is-success');
+    if (!variant) {
+        return;
+    }
+    if (variant === 'error') {
+        photoCheckStatus.classList.add('is-error');
+    } else if (variant === 'success') {
+        photoCheckStatus.classList.add('is-success');
+    }
+}
+
+function renderPhotoCheckResults(result) {
+    if (!photoCheckResultsSection || !photoCheckSummary || !photoCheckReport) {
+        return;
+    }
+
+    const problems = Array.isArray(result?.problems) ? result.problems : [];
+    const normalizedProblems = problems
+        .map((problem, index) => normalizePhotoCheckProblem(problem, index))
+        .filter(Boolean);
+
+    const summary = result?.summary || {};
+    const total = Number.isFinite(summary.total) ? summary.total : normalizedProblems.length;
+    const correctCount = Number.isFinite(summary.correct)
+        ? summary.correct
+        : normalizedProblems.filter((item) => item.isCorrect === true).length;
+    const incorrectCount = Number.isFinite(summary.incorrect)
+        ? summary.incorrect
+        : normalizedProblems.filter((item) => item.isCorrect === false).length;
+    const unknownCount = Math.max(0, total - correctCount - incorrectCount);
+
+    photoCheckReport.innerHTML = '';
+
+    normalizedProblems.forEach((problem) => {
+        const item = document.createElement('li');
+        item.classList.add('photo-check-report__item');
+        if (problem.isCorrect === true) {
+            item.classList.add('is-correct');
+        } else if (problem.isCorrect === false) {
+            item.classList.add('is-incorrect');
+        }
+
+        const heading = document.createElement('h4');
+        heading.className = 'photo-check-report__heading';
+        let statusLabel = '结果不确定';
+        if (problem.isCorrect === true) {
+            statusLabel = '回答正确';
+        } else if (problem.isCorrect === false) {
+            statusLabel = '需要复查';
+        }
+        heading.textContent = `第 ${problem.index} 题：${statusLabel}`;
+        item.appendChild(heading);
+
+        appendPhotoCheckSection(item, '题目', problem.question);
+        appendPhotoCheckSection(item, '手写答案', problem.studentAnswer);
+        appendPhotoCheckSection(item, '参考解答', problem.solvedAnswer);
+        appendPhotoCheckSection(item, '分析', problem.analysis);
+
+        photoCheckReport.appendChild(item);
+    });
+
+    const summaryParts = [];
+    if (total > 0) {
+        summaryParts.push(`共 ${total} 题`);
+        summaryParts.push(`${correctCount} 题正确`);
+        summaryParts.push(`${incorrectCount} 题需要复查`);
+        if (unknownCount > 0) {
+            summaryParts.push(`${unknownCount} 题待人工确认`);
+        }
+    }
+
+    const summaryText = summaryParts.length > 0 ? summaryParts.join('，') + '。' : '未能从照片中识别出题目。';
+    photoCheckSummary.textContent = summaryText;
+    photoCheckResultsSection.hidden = false;
+}
+
+function appendPhotoCheckSection(container, label, value) {
+    const text = cleanPhotoCheckText(value);
+    if (!text) return;
+    const section = document.createElement('p');
+    section.className = 'photo-check-report__section';
+    const strong = document.createElement('strong');
+    strong.textContent = label;
+    section.appendChild(strong);
+    const parts = text.split('\n');
+    parts.forEach((part, index) => {
+        if (index > 0) {
+            section.appendChild(document.createElement('br'));
+        }
+        section.appendChild(document.createTextNode(part));
+    });
+    container.appendChild(section);
+}
+
+function resetPhotoCheckResults() {
+    if (photoCheckReport) {
+        photoCheckReport.innerHTML = '';
+    }
+    if (photoCheckSummary) {
+        photoCheckSummary.textContent = '';
+    }
+    if (photoCheckResultsSection) {
+        photoCheckResultsSection.hidden = true;
+    }
+}
+
+function normalizePhotoCheckProblem(problem, index) {
+    if (!problem) {
+        return null;
+    }
+
+    const question = cleanPhotoCheckText(problem.question ?? problem.questionText ?? problem.prompt);
+    const studentAnswer = cleanPhotoCheckText(
+        problem.studentAnswer ?? problem.student_answer ?? problem.studentResponse ?? problem.student_response
+    );
+    const solvedAnswer = cleanPhotoCheckText(
+        problem.solvedAnswer ??
+            problem.model_answer ??
+            problem.referenceAnswer ??
+            problem.solution ??
+            problem.answer
+    );
+    const analysis = cleanPhotoCheckText(
+        problem.analysis ?? problem.feedback ?? problem.reason ?? problem.explanation ?? problem.notes
+    );
+    const parsedCorrect = parsePhotoCheckCorrectValue(
+        problem.isCorrect ?? problem.is_correct ?? problem.correct ?? problem.verdict ?? problem.check
+    );
+
+    if (!question && !studentAnswer && !solvedAnswer && !analysis) {
+        return null;
+    }
+
+    return {
+        index: index + 1,
+        question,
+        studentAnswer,
+        solvedAnswer,
+        analysis,
+        isCorrect: parsedCorrect
+    };
+}
+
+function cleanPhotoCheckText(value) {
+    if (value == null) {
+        return '';
+    }
+    const text = Array.isArray(value) ? value.join('\n') : String(value);
+    return text.replace(/\r\n/g, '\n').trim();
+}
+
+function parsePhotoCheckCorrectValue(value) {
+    if (typeof value === 'boolean') {
+        return value;
+    }
+    if (typeof value === 'number') {
+        if (value === 1) return true;
+        if (value === 0) return false;
+    }
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) {
+            return null;
+        }
+        if (['正确', '对', '是', 'yes', 'true', '回答正确', '无误', 'right', 'correct'].includes(normalized)) {
+            return true;
+        }
+        if (['错误', '错', '否', 'no', 'false', '需要复查', '不对', 'wrong', 'incorrect'].includes(normalized)) {
+            return false;
+        }
+    }
+    return null;
+}
+
 function showEntryPanel() {
     if (!entryPanel) return;
     hideWizardPanel({ scroll: false, reset: false });
+    hidePhotoCheckPanel({ scroll: false, reset: false });
     if (!entryPanel.hidden) return;
     entryPanel.hidden = false;
     openEntryPanelLink?.setAttribute('aria-expanded', 'true');
@@ -1654,6 +1935,7 @@ function hideEntryPanel(options = {}) {
 function showWizardPanel() {
     if (!wizardPanel) return;
     hideEntryPanel({ scroll: false });
+    hidePhotoCheckPanel({ scroll: false, reset: false });
     if (!wizardPanel.hidden) return;
     resetWizard();
     wizardPanel.hidden = false;
@@ -1858,6 +2140,7 @@ function cleanOcrText(text) {
 function showLogPanel() {
     if (!logPanel) return;
     if (!logPanel.hidden) return;
+    hidePhotoCheckPanel({ scroll: false, reset: false });
     logPanel.hidden = false;
     openLogPanelLink?.setAttribute('aria-expanded', 'true');
     logPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
