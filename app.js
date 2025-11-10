@@ -1996,6 +1996,19 @@ function createPhotoCheckProblemItem(problem) {
     heading.textContent = `第 ${problem.index} 题：${statusLabel}`;
     item.appendChild(heading);
 
+    if (problem.boundingBox) {
+        try {
+            item.dataset.boundingBox = JSON.stringify(problem.boundingBox);
+        } catch (error) {
+            // ignore serialization issues
+        }
+    }
+
+    const figure = createPhotoCheckProblemFigure(problem);
+    if (figure) {
+        item.appendChild(figure);
+    }
+
     appendPhotoCheckSection(item, '题目', problem.question);
     appendPhotoCheckSection(item, '手写答案', problem.studentAnswer);
     appendPhotoCheckSection(item, '参考解答', problem.solvedAnswer);
@@ -2020,6 +2033,60 @@ function appendPhotoCheckSection(container, label, value) {
         section.appendChild(document.createTextNode(part));
     });
     container.appendChild(section);
+}
+
+function createPhotoCheckProblemFigure(problem) {
+    if (!problem || !problem.image) {
+        return null;
+    }
+
+    const url = typeof problem.image.url === 'string' ? problem.image.url.trim() : '';
+    if (!url) {
+        return null;
+    }
+
+    const figure = document.createElement('figure');
+    figure.className = 'photo-check-report__figure';
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    figure.appendChild(link);
+
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = `第 ${problem.index} 题原图`;
+    img.loading = 'lazy';
+    link.appendChild(img);
+
+    const captionText = buildPhotoCheckProblemFigureCaption(problem);
+    if (captionText) {
+        const caption = document.createElement('figcaption');
+        caption.textContent = captionText;
+        figure.appendChild(caption);
+    }
+
+    return figure;
+}
+
+function buildPhotoCheckProblemFigureCaption(problem) {
+    if (!problem || !problem.image) {
+        return '';
+    }
+
+    const parts = ['题目原图'];
+    const width = Number(problem.image.width);
+    const height = Number(problem.image.height);
+    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+        parts.push(`${Math.round(width)}×${Math.round(height)}`);
+    }
+
+    if (problem.image.source === 'crop') {
+        parts.push('AI 裁剪');
+    }
+
+    return parts.filter(Boolean).join(' · ');
 }
 
 function resetPhotoCheckResults() {
@@ -2061,8 +2128,21 @@ function normalizePhotoCheckProblem(problem, index) {
     const parsedCorrect = parsePhotoCheckCorrectValue(
         problem.isCorrect ?? problem.is_correct ?? problem.correct ?? problem.verdict ?? problem.check
     );
+    const boundingBox = normalizePhotoCheckBoundingBox(
+        problem.boundingBox ??
+            problem.bounding_box ??
+            problem.bbox ??
+            problem.region ??
+            problem.rect ??
+            problem.crop ??
+            null
+    );
+    const image = normalizePhotoCheckProblemImage(
+        problem.image ?? problem.preview ?? problem.segment ?? problem.cropImage ?? null,
+        boundingBox
+    );
 
-    if (!question && !studentAnswer && !solvedAnswer && !analysis) {
+    if (!question && !studentAnswer && !solvedAnswer && !analysis && !image) {
         return null;
     }
 
@@ -2072,8 +2152,242 @@ function normalizePhotoCheckProblem(problem, index) {
         studentAnswer,
         solvedAnswer,
         analysis,
-        isCorrect: parsedCorrect
+        isCorrect: parsedCorrect,
+        boundingBox,
+        image
     };
+}
+
+function normalizePhotoCheckProblemImage(raw, fallbackBoundingBox) {
+    if (!raw) {
+        return null;
+    }
+
+    if (typeof raw === 'string') {
+        const url = raw.trim();
+        if (!url) {
+            return null;
+        }
+        return {
+            url,
+            width: null,
+            height: null,
+            boundingBox: fallbackBoundingBox || null,
+            source: null
+        };
+    }
+
+    if (typeof raw !== 'object') {
+        return null;
+    }
+
+    const urlValue =
+        typeof raw.url === 'string'
+            ? raw.url
+            : typeof raw.dataUrl === 'string'
+            ? raw.dataUrl
+            : typeof raw.href === 'string'
+            ? raw.href
+            : '';
+    const url = urlValue.trim();
+    if (!url) {
+        return null;
+    }
+
+    const widthValue = toFiniteNumber(raw.width);
+    const heightValue = toFiniteNumber(raw.height);
+
+    const boundingBox =
+        normalizePhotoCheckBoundingBox(
+            raw.boundingBox ?? raw.bounding_box ?? raw.bbox ?? raw.region ?? raw.rect ?? fallbackBoundingBox
+        ) || fallbackBoundingBox || null;
+
+    const image = {
+        url,
+        width: Number.isFinite(widthValue) && widthValue > 0 ? Math.round(widthValue) : null,
+        height: Number.isFinite(heightValue) && heightValue > 0 ? Math.round(heightValue) : null,
+        boundingBox,
+        source: typeof raw.source === 'string' ? raw.source : null
+    };
+
+    const attemptValue = toFiniteNumber(raw.attempt ?? raw.attemptIndex);
+    if (Number.isFinite(attemptValue) && attemptValue > 0) {
+        image.attempt = Math.floor(attemptValue);
+    }
+
+    const indexValue = toFiniteNumber(raw.index ?? raw.problem ?? raw.problemIndex);
+    if (Number.isFinite(indexValue) && indexValue > 0) {
+        image.index = Math.floor(indexValue);
+    }
+
+    return image;
+}
+
+function normalizePhotoCheckBoundingBox(raw) {
+    if (!raw) {
+        return null;
+    }
+
+    const input = coercePhotoCheckBoundingBoxInput(raw);
+    if (!input || typeof input !== 'object') {
+        return null;
+    }
+
+    const leftValue = toFiniteNumber(
+        input.left ?? input.x ?? input.x1 ?? input.minX ?? input.startX ?? (Array.isArray(input) ? input[0] : null)
+    );
+    const topValue = toFiniteNumber(
+        input.top ?? input.y ?? input.y1 ?? input.minY ?? input.startY ?? (Array.isArray(input) ? input[1] : null)
+    );
+    let widthValue = toFiniteNumber(input.width ?? input.w ?? input.spanX ?? (Array.isArray(input) ? input[2] : null));
+    let heightValue = toFiniteNumber(input.height ?? input.h ?? input.spanY ?? (Array.isArray(input) ? input[3] : null));
+    const rightValue = toFiniteNumber(input.right ?? input.x2 ?? input.maxX ?? input.endX);
+    const bottomValue = toFiniteNumber(input.bottom ?? input.y2 ?? input.maxY ?? input.endY);
+
+    let left = leftValue;
+    let top = topValue;
+    let width = widthValue;
+    let height = heightValue;
+
+    if ((width == null || width <= 0) && rightValue != null && left != null) {
+        width = rightValue - left;
+    }
+    if ((height == null || height <= 0) && bottomValue != null && top != null) {
+        height = bottomValue - top;
+    }
+    if (left == null && rightValue != null && width != null) {
+        left = rightValue - width;
+    }
+    if (top == null && bottomValue != null && height != null) {
+        top = bottomValue - height;
+    }
+
+    if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(width) || !Number.isFinite(height)) {
+        return null;
+    }
+
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    let unit = typeof input.unit === 'string' ? input.unit.toLowerCase() : null;
+    if (unit !== 'pixel' && unit !== 'ratio') {
+        unit = null;
+    }
+
+    const values = [left, top, width, height];
+    const allWithinUnitInterval = values.every((value) => value >= 0 && value <= 1);
+    const anyAboveOne = values.some((value) => value > 1);
+
+    if (!unit) {
+        unit = !anyAboveOne && allWithinUnitInterval ? 'ratio' : 'pixel';
+    }
+
+    if (unit === 'ratio') {
+        left = clampValue(left, 0, 1);
+        top = clampValue(top, 0, 1);
+        width = clampValue(width, 0, 1);
+        height = clampValue(height, 0, 1);
+        if (left + width > 1) {
+            width = Math.max(0, 1 - left);
+        }
+        if (top + height > 1) {
+            height = Math.max(0, 1 - top);
+        }
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+    } else {
+        left = Math.max(0, left);
+        top = Math.max(0, top);
+        width = Math.max(1, width);
+        height = Math.max(1, height);
+    }
+
+    const confidenceValue = toFiniteNumber(input.confidence ?? input.score ?? input.probability);
+    const confidence = confidenceValue != null ? clampValue(confidenceValue, 0, 1) : null;
+
+    return {
+        left,
+        top,
+        width,
+        height,
+        unit,
+        confidence
+    };
+}
+
+function coercePhotoCheckBoundingBoxInput(raw) {
+    if (!raw) {
+        return null;
+    }
+
+    if (Array.isArray(raw)) {
+        if (raw.length < 4) {
+            return null;
+        }
+        const [a, b, c, d] = raw;
+        const numbers = [a, b, c, d].map(toFiniteNumber);
+        if (numbers.some((value) => !Number.isFinite(value))) {
+            return null;
+        }
+        const [left, top, third, fourth] = numbers;
+        const treatAsRightBottom = third > 1 || fourth > 1;
+        if (treatAsRightBottom) {
+            return { left, top, right: third, bottom: fourth };
+        }
+        return { left, top, width: third, height: fourth };
+    }
+
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (!trimmed) {
+            return null;
+        }
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            const parsed = safeJsonParse(trimmed);
+            if (parsed != null) {
+                return coercePhotoCheckBoundingBoxInput(parsed);
+            }
+        }
+        const parts = trimmed.split(/[,\s]+/).filter(Boolean);
+        if (parts.length >= 4) {
+            const numbers = parts.slice(0, 4).map(toFiniteNumber);
+            if (numbers.every((value) => Number.isFinite(value))) {
+                return coercePhotoCheckBoundingBoxInput(numbers);
+            }
+        }
+        return null;
+    }
+
+    if (typeof raw === 'object') {
+        return raw;
+    }
+
+    return null;
+}
+
+function clampValue(value, min, max) {
+    if (!Number.isFinite(value)) {
+        return min;
+    }
+    return Math.min(max, Math.max(min, value));
+}
+
+function toFiniteNumber(value) {
+    if (value == null || value === '') {
+        return null;
+    }
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+function safeJsonParse(value) {
+    try {
+        return JSON.parse(value);
+    } catch (error) {
+        return null;
+    }
 }
 
 function cleanPhotoCheckText(value) {
