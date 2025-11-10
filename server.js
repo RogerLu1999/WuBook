@@ -30,6 +30,7 @@ const MIN_IMAGE_SCALE = 0.3;
 const MAX_IMAGE_SCALE = 1.2;
 const DEFAULT_IMAGE_SCALE = 1;
 const PAPER_IMAGE_BASE_WIDTH = 600;
+const PHOTO_CHECK_CROP_PADDING = 16;
 
 const SUBJECT_PREFIX_MAP = new Map([
     ['数学', 'M'],
@@ -162,7 +163,13 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
 
     try {
         const preparedImage = await preparePhotoCheckImage(req.file.buffer);
+        const photoInfo = await savePhotoCheckOriginalImage(preparedImage);
         const attempts = await analyzePhotoWithQwenMultiple(preparedImage, 2);
+        await attachPhotoCheckProblemImages(attempts, {
+            buffer: preparedImage,
+            metadata: photoInfo?.metadata || null,
+            baseName: photoInfo?.baseName || null
+        });
         const primaryAttempt = attempts[0] || createEmptyPhotoCheckAttempt();
 
         await logAction('photo-check', 'success', {
@@ -173,18 +180,15 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
             unknown: primaryAttempt.summary.unknown
         });
 
-        const previewImageUrl = `data:image/png;base64,${preparedImage.toString('base64')}`;
-        const previewMetadata = await sharp(preparedImage)
-            .metadata()
-            .catch(() => ({}));
+        const previewMetadata = photoInfo?.metadata || {};
 
         res.json({
             summary: primaryAttempt.summary,
             problems: primaryAttempt.problems,
             image: {
-                url: previewImageUrl,
-                width: previewMetadata?.width || null,
-                height: previewMetadata?.height || null
+                url: photoInfo?.url || null,
+                width: previewMetadata.width || null,
+                height: previewMetadata.height || null
             },
             attempts: attempts.map((attempt, index) => ({
                 attempt: index + 1,
@@ -410,6 +414,203 @@ async function preparePhotoCheckImage(buffer) {
     return sharp(buffer, { failOnError: false }).rotate().toFormat('png').toBuffer();
 }
 
+async function savePhotoCheckOriginalImage(buffer) {
+    if (!buffer) {
+        return {
+            url: null,
+            path: null,
+            filename: null,
+            baseName: null,
+            metadata: {}
+        };
+    }
+
+    const metadata = await sharp(buffer, { failOnError: false })
+        .metadata()
+        .catch(() => ({}));
+
+    const filename = `photo-check-${Date.now()}-${randomUUID()}.png`;
+    const filePath = path.join(UPLOADS_DIR, filename);
+
+    await ensureDirectories();
+    await fsp.writeFile(filePath, buffer);
+
+    return {
+        url: `/uploads/${filename}`,
+        path: filePath,
+        filename,
+        baseName: path.parse(filename).name,
+        metadata: metadata || {}
+    };
+}
+
+async function attachPhotoCheckProblemImages(attempts, options = {}) {
+    if (!Array.isArray(attempts) || attempts.length === 0) {
+        return;
+    }
+
+    const metadata = options?.metadata || {};
+    const imageWidth = Number(metadata.width);
+    const imageHeight = Number(metadata.height);
+    if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight)) {
+        return;
+    }
+
+    const baseName = options?.baseName || `photo-check-${Date.now()}`;
+    const buffer = options?.buffer || null;
+
+    for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+        const attempt = attempts[attemptIndex];
+        if (!attempt || !Array.isArray(attempt.problems) || attempt.problems.length === 0) {
+            continue;
+        }
+
+        for (let problemIndex = 0; problemIndex < attempt.problems.length; problemIndex += 1) {
+            const problem = attempt.problems[problemIndex];
+            if (!problem || !problem.boundingBox) {
+                continue;
+            }
+
+            const region = convertBoundingBoxToRegion(problem.boundingBox, metadata, PHOTO_CHECK_CROP_PADDING);
+            if (!region) {
+                continue;
+            }
+
+            const safeProblemIndex = Number.isFinite(problem.index)
+                ? Math.max(1, Math.floor(problem.index))
+                : problemIndex + 1;
+            const filename = `${baseName}-a${attemptIndex + 1}-q${String(safeProblemIndex).padStart(2, '0')}.png`;
+
+            try {
+                const crop = await createPhotoCheckProblemCrop(buffer, region, filename);
+                if (!crop) {
+                    continue;
+                }
+
+                const existingImage = typeof problem.image === 'object' && problem.image ? problem.image : {};
+                const boundingBoxInfo = existingImage.boundingBox || {
+                    left: problem.boundingBox.left,
+                    top: problem.boundingBox.top,
+                    width: problem.boundingBox.width,
+                    height: problem.boundingBox.height,
+                    unit: problem.boundingBox.unit,
+                    confidence: problem.boundingBox.confidence ?? null
+                };
+
+                problem.image = {
+                    ...existingImage,
+                    url: crop.url,
+                    width: crop.width,
+                    height: crop.height,
+                    attempt: existingImage.attempt ?? attemptIndex + 1,
+                    index: existingImage.index ?? safeProblemIndex,
+                    boundingBox: boundingBoxInfo,
+                    source: existingImage.source || 'crop'
+                };
+            } catch (error) {
+                console.warn('Failed to generate photo check crop', error);
+            }
+        }
+    }
+}
+
+function convertBoundingBoxToRegion(boundingBox, metadata, padding = 0) {
+    if (!boundingBox || !metadata) {
+        return null;
+    }
+
+    const imageWidth = Number(metadata.width);
+    const imageHeight = Number(metadata.height);
+    if (!Number.isFinite(imageWidth) || !Number.isFinite(imageHeight)) {
+        return null;
+    }
+
+    const unit = typeof boundingBox.unit === 'string' ? boundingBox.unit.toLowerCase() : 'ratio';
+    const leftValue = toFiniteNumber(boundingBox.left ?? boundingBox.x);
+    const topValue = toFiniteNumber(boundingBox.top ?? boundingBox.y);
+    const widthValue = toFiniteNumber(boundingBox.width);
+    const heightValue = toFiniteNumber(boundingBox.height);
+
+    if (![leftValue, topValue, widthValue, heightValue].every((value) => Number.isFinite(value))) {
+        return null;
+    }
+
+    let left = leftValue;
+    let top = topValue;
+    let width = widthValue;
+    let height = heightValue;
+
+    if (unit === 'pixel') {
+        left = Math.max(0, left);
+        top = Math.max(0, top);
+    } else {
+        left = clamp(left, 0, 1) * imageWidth;
+        top = clamp(top, 0, 1) * imageHeight;
+        width = clamp(width, 0, 1) * imageWidth;
+        height = clamp(height, 0, 1) * imageHeight;
+    }
+
+    if (width <= 1 || height <= 1) {
+        return null;
+    }
+
+    let right = left + width;
+    let bottom = top + height;
+
+    if (padding > 0) {
+        left -= padding;
+        top -= padding;
+        right += padding;
+        bottom += padding;
+    }
+
+    left = Math.max(0, Math.floor(left));
+    top = Math.max(0, Math.floor(top));
+    right = Math.min(imageWidth, Math.ceil(right));
+    bottom = Math.min(imageHeight, Math.ceil(bottom));
+
+    const finalWidth = Math.max(1, right - left);
+    const finalHeight = Math.max(1, bottom - top);
+
+    if (finalWidth <= 1 || finalHeight <= 1) {
+        return null;
+    }
+
+    return {
+        left,
+        top,
+        width: finalWidth,
+        height: finalHeight
+    };
+}
+
+async function createPhotoCheckProblemCrop(buffer, region, filename) {
+    if (!buffer || !region || !filename) {
+        return null;
+    }
+
+    const cropBuffer = await sharp(buffer, { failOnError: false })
+        .extract({
+            left: region.left,
+            top: region.top,
+            width: region.width,
+            height: region.height
+        })
+        .toFormat('png')
+        .toBuffer();
+
+    await ensureDirectories();
+    const filePath = path.join(UPLOADS_DIR, filename);
+    await fsp.writeFile(filePath, cropBuffer);
+
+    return {
+        url: `/uploads/${filename}`,
+        path: filePath,
+        width: region.width,
+        height: region.height
+    };
+}
+
 async function analyzePhotoWithQwen(buffer) {
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) {
@@ -432,6 +633,9 @@ async function analyzePhotoWithQwen(buffer) {
 3. 根据题干独立求解或推导标准答案，填入“model_answer”。
 4. 对比学生答案与参考答案，判断正误：正确写 true，错误写 false，如无法判断写 null，并在分析里说明原因。
 5. 为每道题目撰写一句简洁分析，指出核对结果或解题要点。
+6. 为每道题目标注在原图中的位置，在“bounding_box”字段中给出相对坐标，格式如下：
+   "bounding_box": { "x": 0.12, "y": 0.34, "width": 0.28, "height": 0.18 }
+   其中 x、y、width、height 均为 0~1 之间的小数，分别表示左上角相对宽度、相对高度，以及宽度和高度所占的比例。
 
 请仅返回 JSON，结构如下：
 {
@@ -441,7 +645,8 @@ async function analyzePhotoWithQwen(buffer) {
       "student_answer": "学生手写答案文字",
       "model_answer": "你的参考答案",
       "is_correct": true/false/null,
-      "analysis": "核对说明或解析"
+      "analysis": "核对说明或解析",
+      "bounding_box": { "x": 相对宽度, "y": 相对高度, "width": 相对宽度, "height": 相对高度 }
     }
   ],
   "summary": {
@@ -632,8 +837,21 @@ function normalizePhotoCheckProblem(problem, index) {
     const isCorrect = parsePhotoCheckBoolean(
         problem.is_correct ?? problem.isCorrect ?? problem.correct ?? problem.verdict ?? problem.check
     );
+    const boundingBox = normalizePhotoCheckBoundingBox(
+        problem.bounding_box ??
+            problem.boundingBox ??
+            problem.bbox ??
+            problem.region ??
+            problem.rect ??
+            problem.crop ??
+            null
+    );
+    const image = normalizePhotoCheckProblemImage(
+        problem.image ?? problem.preview ?? problem.segment ?? problem.cropImage ?? null,
+        boundingBox
+    );
 
-    if (!question && !studentAnswer && !modelAnswer && !analysis) {
+    if (!question && !studentAnswer && !modelAnswer && !analysis && !image) {
         return null;
     }
 
@@ -643,7 +861,9 @@ function normalizePhotoCheckProblem(problem, index) {
         studentAnswer,
         solvedAnswer: modelAnswer,
         analysis,
-        isCorrect
+        isCorrect,
+        boundingBox,
+        image
     };
 }
 
@@ -657,6 +877,231 @@ function sanitizePhotoCheckText(value) {
         .replace(/[\u3000\u00A0]/g, ' ')
         .replace(/\s+$/gm, '')
         .trim();
+}
+
+function normalizePhotoCheckProblemImage(raw, fallbackBoundingBox) {
+    if (!raw) {
+        return null;
+    }
+
+    if (typeof raw === 'string') {
+        const url = raw.trim();
+        if (!url) {
+            return null;
+        }
+        return {
+            url,
+            width: null,
+            height: null,
+            boundingBox: fallbackBoundingBox || null,
+            source: null
+        };
+    }
+
+    if (typeof raw !== 'object') {
+        return null;
+    }
+
+    const urlValue =
+        typeof raw.url === 'string'
+            ? raw.url
+            : typeof raw.dataUrl === 'string'
+            ? raw.dataUrl
+            : typeof raw.href === 'string'
+            ? raw.href
+            : '';
+    const url = urlValue.trim();
+    if (!url) {
+        return null;
+    }
+
+    const widthValue = toFiniteNumber(raw.width);
+    const heightValue = toFiniteNumber(raw.height);
+
+    const boundingBox =
+        normalizePhotoCheckBoundingBox(
+            raw.boundingBox ?? raw.bounding_box ?? raw.bbox ?? raw.region ?? raw.rect ?? fallbackBoundingBox
+        ) || fallbackBoundingBox || null;
+
+    const image = {
+        url,
+        width: Number.isFinite(widthValue) && widthValue > 0 ? Math.round(widthValue) : null,
+        height: Number.isFinite(heightValue) && heightValue > 0 ? Math.round(heightValue) : null,
+        boundingBox,
+        source: typeof raw.source === 'string' ? raw.source : null
+    };
+
+    const attemptValue = toFiniteNumber(raw.attempt ?? raw.attemptIndex);
+    if (Number.isFinite(attemptValue) && attemptValue > 0) {
+        image.attempt = Math.floor(attemptValue);
+    }
+
+    const indexValue = toFiniteNumber(raw.index ?? raw.problem ?? raw.problemIndex);
+    if (Number.isFinite(indexValue) && indexValue > 0) {
+        image.index = Math.floor(indexValue);
+    }
+
+    return image;
+}
+
+function normalizePhotoCheckBoundingBox(raw) {
+    if (!raw) {
+        return null;
+    }
+
+    const input = coerceBoundingBoxInput(raw);
+    if (!input || typeof input !== 'object') {
+        return null;
+    }
+
+    const leftValue = toFiniteNumber(
+        input.left ?? input.x ?? input.x1 ?? input.minX ?? input.startX ?? (Array.isArray(input) ? input[0] : null)
+    );
+    const topValue = toFiniteNumber(
+        input.top ?? input.y ?? input.y1 ?? input.minY ?? input.startY ?? (Array.isArray(input) ? input[1] : null)
+    );
+    let widthValue = toFiniteNumber(input.width ?? input.w ?? input.spanX ?? (Array.isArray(input) ? input[2] : null));
+    let heightValue = toFiniteNumber(input.height ?? input.h ?? input.spanY ?? (Array.isArray(input) ? input[3] : null));
+    const rightValue = toFiniteNumber(input.right ?? input.x2 ?? input.maxX ?? input.endX);
+    const bottomValue = toFiniteNumber(input.bottom ?? input.y2 ?? input.maxY ?? input.endY);
+
+    let left = leftValue;
+    let top = topValue;
+    let width = widthValue;
+    let height = heightValue;
+
+    if ((width == null || width <= 0) && rightValue != null && left != null) {
+        width = rightValue - left;
+    }
+    if ((height == null || height <= 0) && bottomValue != null && top != null) {
+        height = bottomValue - top;
+    }
+    if (left == null && rightValue != null && width != null) {
+        left = rightValue - width;
+    }
+    if (top == null && bottomValue != null && height != null) {
+        top = bottomValue - height;
+    }
+
+    if (!Number.isFinite(left) || !Number.isFinite(top) || !Number.isFinite(width) || !Number.isFinite(height)) {
+        return null;
+    }
+
+    if (width <= 0 || height <= 0) {
+        return null;
+    }
+
+    let unit = typeof input.unit === 'string' ? input.unit.toLowerCase() : null;
+    if (unit !== 'pixel' && unit !== 'ratio') {
+        unit = null;
+    }
+
+    const values = [left, top, width, height];
+    const allWithinUnitInterval = values.every((value) => value >= 0 && value <= 1);
+    const anyAboveOne = values.some((value) => value > 1);
+
+    if (!unit) {
+        unit = !anyAboveOne && allWithinUnitInterval ? 'ratio' : 'pixel';
+    }
+
+    if (unit === 'ratio') {
+        left = clamp(left, 0, 1);
+        top = clamp(top, 0, 1);
+        width = clamp(width, 0, 1);
+        height = clamp(height, 0, 1);
+        if (left + width > 1) {
+            width = Math.max(0, 1 - left);
+        }
+        if (top + height > 1) {
+            height = Math.max(0, 1 - top);
+        }
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+    } else {
+        left = Math.max(0, left);
+        top = Math.max(0, top);
+        width = Math.max(1, width);
+        height = Math.max(1, height);
+    }
+
+    const confidenceValue = toFiniteNumber(input.confidence ?? input.score ?? input.probability);
+    const confidence = confidenceValue != null ? clamp(confidenceValue, 0, 1) : null;
+
+    return {
+        left,
+        top,
+        width,
+        height,
+        unit,
+        confidence
+    };
+}
+
+function coerceBoundingBoxInput(raw) {
+    if (!raw) {
+        return null;
+    }
+
+    if (Array.isArray(raw)) {
+        if (raw.length < 4) {
+            return null;
+        }
+        const [a, b, c, d] = raw;
+        const numbers = [a, b, c, d].map(toFiniteNumber);
+        if (numbers.some((value) => !Number.isFinite(value))) {
+            return null;
+        }
+        const [left, top, third, fourth] = numbers;
+        const treatAsRightBottom = third > 1 || fourth > 1;
+        if (treatAsRightBottom) {
+            return { left, top, right: third, bottom: fourth };
+        }
+        return { left, top, width: third, height: fourth };
+    }
+
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (!trimmed) {
+            return null;
+        }
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+            const parsed = safeJsonParse(trimmed);
+            if (parsed != null) {
+                return coerceBoundingBoxInput(parsed);
+            }
+        }
+        const parts = trimmed.split(/[,\s]+/).filter(Boolean);
+        if (parts.length >= 4) {
+            const numbers = parts.slice(0, 4).map(toFiniteNumber);
+            if (numbers.every((value) => Number.isFinite(value))) {
+                return coerceBoundingBoxInput(numbers);
+            }
+        }
+        return null;
+    }
+
+    if (typeof raw === 'object') {
+        return raw;
+    }
+
+    return null;
+}
+
+function safeJsonParse(value) {
+    try {
+        return JSON.parse(value);
+    } catch (error) {
+        return null;
+    }
+}
+
+function toFiniteNumber(value) {
+    if (value == null || value === '') {
+        return null;
+    }
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
 }
 
 function parsePhotoCheckBoolean(value) {

@@ -333,6 +333,35 @@ body {
     letter-spacing: 0.02em;
 }
 
+.photo-check-report__figure {
+    margin: 0 0 1rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.photo-check-report__figure a {
+    display: block;
+}
+
+.photo-check-report__figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.photo-check-report__figure figcaption {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    background: #f8fafc;
+    border-top: 1px solid rgba(148, 163, 184, 0.35);
+    text-align: center;
+}
+
 .wizard {
     display: flex;
     flex-direction: column;
