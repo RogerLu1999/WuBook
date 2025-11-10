@@ -1887,26 +1887,130 @@ function createPhotoCheckProblemRow(row, attemptOrder) {
     title.textContent = `第 ${row.index} 题`;
     item.appendChild(title);
 
+    const normalizedOrder = Array.isArray(attemptOrder) ? attemptOrder : [];
+
     const grid = document.createElement('div');
     grid.className = 'photo-check-problem__grid';
     item.appendChild(grid);
 
-    attemptOrder.forEach((attemptIndex) => {
-        const problem = row.attempts.get(attemptIndex) || null;
-        grid.appendChild(createPhotoCheckAttemptColumn(problem, attemptIndex));
-    });
+    grid.appendChild(createPhotoCheckImageColumn(row, normalizedOrder));
+
+    const solutionAttempts = normalizedOrder.filter((attemptIndex) => attemptIndex !== 1);
+    const firstSolutionIndex = solutionAttempts[0] ?? null;
+    const secondSolutionIndex = solutionAttempts[1] ?? null;
+
+    grid.appendChild(
+        createPhotoCheckAttemptColumn(row.attempts.get(firstSolutionIndex) || null, firstSolutionIndex, {
+            position: 1
+        })
+    );
+
+    grid.appendChild(
+        createPhotoCheckAttemptColumn(row.attempts.get(secondSolutionIndex) || null, secondSolutionIndex, {
+            position: 2
+        })
+    );
 
     return item;
 }
 
-function createPhotoCheckAttemptColumn(problem, attemptIndex) {
+function createPhotoCheckImageColumn(row, attemptOrder) {
     const column = document.createElement('div');
-    column.className = 'photo-check-problem__column photo-check-problem__column--attempt';
-    column.dataset.attempt = String(attemptIndex);
+    column.className = 'photo-check-problem__column photo-check-problem__column--image';
+    column.dataset.role = 'image';
 
     const heading = document.createElement('h4');
     heading.className = 'photo-check-report__attempt-title';
-    heading.textContent = `第 ${attemptIndex} 次调用`;
+    heading.textContent = '题目截图（第 1 次调用）';
+    column.appendChild(heading);
+
+    const imageSource = findPhotoCheckProblemImage(row, attemptOrder);
+
+    if (imageSource) {
+        const figure = document.createElement('figure');
+        figure.className = 'photo-check-problem__image';
+
+        const img = document.createElement('img');
+        img.src = imageSource.url;
+        img.alt = `第 ${row.index} 题截图`;
+        figure.appendChild(img);
+
+        if (imageSource.caption) {
+            const figcaption = document.createElement('figcaption');
+            figcaption.textContent = imageSource.caption;
+            figure.appendChild(figcaption);
+        }
+
+        column.appendChild(figure);
+    } else {
+        const empty = document.createElement('p');
+        empty.className = 'photo-check-report__attempt-empty';
+        empty.textContent = '未能生成该题目的截图。';
+        column.appendChild(empty);
+    }
+
+    return column;
+}
+
+function findPhotoCheckProblemImage(row, attemptOrder) {
+    if (!row || !row.attempts) {
+        return null;
+    }
+
+    const primaryAttempt = row.attempts.get(1) || null;
+    const primaryImage = primaryAttempt?.image || null;
+
+    if (primaryImage && typeof primaryImage.url === 'string' && primaryImage.url.trim()) {
+        return {
+            url: primaryImage.url,
+            caption: primaryImage.source === 'crop' ? '自动截取的小题区域' : null
+        };
+    }
+
+    const normalizedOrder = Array.isArray(attemptOrder) ? attemptOrder : [];
+
+    for (let index = 0; index < normalizedOrder.length; index += 1) {
+        const attemptIndex = normalizedOrder[index];
+        const attempt = row.attempts.get(attemptIndex);
+        const image = attempt?.image;
+        if (image && typeof image.url === 'string' && image.url.trim()) {
+            return {
+                url: image.url,
+                caption: image.source === 'crop' ? '自动截取的小题区域' : null
+            };
+        }
+    }
+
+    return null;
+}
+
+function createPhotoCheckAttemptColumn(problem, attemptIndex, options = {}) {
+    const column = document.createElement('div');
+    column.className = 'photo-check-problem__column photo-check-problem__column--attempt';
+    if (attemptIndex != null) {
+        column.dataset.attempt = String(attemptIndex);
+    }
+
+    const heading = document.createElement('h4');
+    heading.className = 'photo-check-report__attempt-title';
+    const position = Number(options.position);
+    if (position === 1) {
+        if (Number.isFinite(Number(attemptIndex)) && attemptIndex > 0) {
+            heading.textContent = `第一次解题（第 ${attemptIndex} 次调用）`;
+        } else {
+            heading.textContent = '第一次解题';
+        }
+    } else if (position === 2) {
+        if (Number.isFinite(Number(attemptIndex)) && attemptIndex > 0) {
+            heading.textContent = `第二次解题（第 ${attemptIndex} 次调用）`;
+        } else {
+            heading.textContent = '第二次解题';
+        }
+    } else if (Number.isFinite(Number(attemptIndex)) && attemptIndex > 0) {
+        heading.textContent = `第 ${attemptIndex} 次调用`;
+    } else {
+        heading.textContent = '解题结果';
+    }
     column.appendChild(heading);
 
     if (!problem) {
@@ -2097,7 +2201,7 @@ function formatPhotoCheckAttemptSummary(attempt, { withPrefix = false } = {}) {
 
 function buildPhotoCheckOverallSummary(attempts) {
     if (!Array.isArray(attempts) || attempts.length === 0) {
-        return '未能从照片中识别出题目。';
+        return '未能从照片中识别出题目。本次检查共调用 3 次 AI：第 1 次读取照片并截取题目，第 2 次和第 3 次分别负责解题核对。';
     }
 
     const includePrefix = attempts.length > 1;
@@ -2106,10 +2210,11 @@ function buildPhotoCheckOverallSummary(attempts) {
         .filter((text) => Boolean(text && text.trim()));
 
     if (parts.length === 0) {
-        return '未能从照片中识别出题目。';
+        return '未能从照片中识别出题目。本次检查共调用 3 次 AI：第 1 次读取照片并截取题目，第 2 次和第 3 次分别负责解题核对。';
     }
 
-    return `${parts.join('；')}。`;
+    const workflowSummary = '本次检查共调用 3 次 AI：第 1 次读取照片并截取题目，第 2 次和第 3 次分别负责解题核对。';
+    return `${parts.join('；')}。${workflowSummary}`;
 }
 
 function appendPhotoCheckSection(container, label, value) {
