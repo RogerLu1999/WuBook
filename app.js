@@ -1814,14 +1814,9 @@ function buildPhotoCheckProblemRows(attempts) {
                     index: resolvedIndex,
                     order: rowsMap.size,
                     attempts: new Map(),
-                    image: problem.image || null,
-                    boundingBox: problem.image?.boundingBox || problem.boundingBox || null
+                    boundingBox: problem.boundingBox || problem.image?.boundingBox || null
                 };
                 rowsMap.set(key, row);
-            }
-
-            if (!row.image && problem.image) {
-                row.image = problem.image;
             }
 
             if (!row.boundingBox && (problem.image?.boundingBox || problem.boundingBox)) {
@@ -1843,26 +1838,21 @@ function buildPhotoCheckProblemRows(attempts) {
 }
 
 function buildPhotoCheckAttemptOrder(attempts) {
-    const indexes = Array.isArray(attempts)
-        ? attempts
-              .map((attempt) => toFiniteNumber(attempt?.index))
-              .filter((value) => Number.isFinite(value) && value > 0)
-              .map((value) => Math.floor(value))
-        : [];
-
-    const unique = Array.from(new Set(indexes)).sort((a, b) => a - b);
-
-    if (unique.length >= 2) {
-        return unique.slice(0, 2);
+    if (!Array.isArray(attempts) || attempts.length === 0) {
+        return [];
     }
 
-    if (unique.length === 1) {
-        const first = unique[0];
-        const second = first === 1 ? 2 : first + 1;
-        return [first, second];
-    }
+    const order = [];
 
-    return [1, 2];
+    attempts.forEach((attempt, index) => {
+        const value = toFiniteNumber(attempt?.index);
+        const normalized = Number.isFinite(value) && value > 0 ? Math.floor(value) : index + 1;
+        if (!order.includes(normalized)) {
+            order.push(normalized);
+        }
+    });
+
+    return order;
 }
 
 function resolvePhotoCheckProblemIndex(problem, fallbackIndex) {
@@ -1900,22 +1890,6 @@ function createPhotoCheckProblemRow(row, attemptOrder) {
     const grid = document.createElement('div');
     grid.className = 'photo-check-problem__grid';
     item.appendChild(grid);
-
-    const imageColumn = document.createElement('div');
-    imageColumn.className = 'photo-check-problem__column photo-check-problem__column--image';
-
-    const figureSource = row.image ? { index: row.index, image: row.image } : null;
-    const figure = figureSource ? createPhotoCheckProblemFigure(figureSource) : null;
-    if (figure) {
-        imageColumn.appendChild(figure);
-    } else {
-        const placeholder = document.createElement('p');
-        placeholder.className = 'photo-check-report__attempt-empty';
-        placeholder.textContent = '未生成题目截取图像。';
-        imageColumn.appendChild(placeholder);
-    }
-
-    grid.appendChild(imageColumn);
 
     attemptOrder.forEach((attemptIndex) => {
         const problem = row.attempts.get(attemptIndex) || null;
@@ -2154,60 +2128,6 @@ function appendPhotoCheckSection(container, label, value) {
         section.appendChild(document.createTextNode(part));
     });
     container.appendChild(section);
-}
-
-function createPhotoCheckProblemFigure(problem) {
-    if (!problem || !problem.image) {
-        return null;
-    }
-
-    const url = typeof problem.image.url === 'string' ? problem.image.url.trim() : '';
-    if (!url) {
-        return null;
-    }
-
-    const figure = document.createElement('figure');
-    figure.className = 'photo-check-report__figure';
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    figure.appendChild(link);
-
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = `第 ${problem.index} 题截取图`;
-    img.loading = 'lazy';
-    link.appendChild(img);
-
-    const captionText = buildPhotoCheckProblemFigureCaption(problem);
-    if (captionText) {
-        const caption = document.createElement('figcaption');
-        caption.textContent = captionText;
-        figure.appendChild(caption);
-    }
-
-    return figure;
-}
-
-function buildPhotoCheckProblemFigureCaption(problem) {
-    if (!problem || !problem.image) {
-        return '';
-    }
-
-    const parts = ['题目截取'];
-    const width = Number(problem.image.width);
-    const height = Number(problem.image.height);
-    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-        parts.push(`${Math.round(width)}×${Math.round(height)}`);
-    }
-
-    if (problem.image.source === 'crop') {
-        parts.push('AI 裁剪');
-    }
-
-    return parts.filter(Boolean).join(' · ');
 }
 
 function resetPhotoCheckResults() {
