@@ -1771,6 +1771,7 @@ function showPhotoCheckProgress(message) {
         return;
     }
     updatePhotoCheckProgress(message);
+    photoCheckProgress.classList.add('is-active');
     photoCheckProgress.hidden = false;
 }
 
@@ -1784,6 +1785,7 @@ function hidePhotoCheckProgress() {
     if (!photoCheckProgress) {
         return;
     }
+    photoCheckProgress.classList.remove('is-active');
     photoCheckProgress.hidden = true;
     updatePhotoCheckProgress('');
 }

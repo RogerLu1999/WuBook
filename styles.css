@@ -191,43 +191,88 @@ body {
 .photo-check-progress {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    margin: 0.25rem 0 0;
+    gap: 0.75rem;
+    margin: 0.5rem 0 0;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(79, 70, 229, 0.15);
+    background: linear-gradient(135deg, rgba(238, 242, 255, 0.9), rgba(255, 255, 255, 0.9));
+    box-shadow: 0 12px 30px rgba(79, 70, 229, 0.12);
 }
 
 .photo-check-progress__bar {
     position: relative;
-    height: 0.5rem;
+    height: 0.55rem;
     border-radius: 999px;
-    background: var(--accent-soft);
+    background: rgba(79, 70, 229, 0.15);
     overflow: hidden;
 }
 
 .photo-check-progress__indicator {
     position: absolute;
     inset: 0;
-    width: 40%;
-    min-width: 2.5rem;
+    background: linear-gradient(90deg, rgba(79, 70, 229, 0.2), rgba(79, 70, 229, 0.9), rgba(79, 70, 229, 0.2));
+    background-size: 200% 100%;
+    transform-origin: left;
+    transform: scaleX(0.2);
+    opacity: 0;
+    transition: transform 0.5s ease, opacity 0.3s ease;
+}
+
+.photo-check-progress.is-active .photo-check-progress__indicator {
+    opacity: 1;
+    transform: scaleX(1);
+    animation: photo-check-progress-sheen 1.8s ease-in-out infinite;
+}
+
+.photo-check-progress__details {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.photo-check-progress__pulse {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 50%;
     background: var(--accent);
-    border-radius: inherit;
-    animation: photo-check-progress-indeterminate 1.25s ease-in-out infinite;
+    box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.35);
+    opacity: 0.75;
+    transition: transform 0.4s ease, opacity 0.3s ease;
+}
+
+.photo-check-progress.is-active .photo-check-progress__pulse {
+    animation: photo-check-progress-pulse 1.6s ease-in-out infinite;
+    opacity: 1;
 }
 
 .photo-check-progress__label {
     margin: 0;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     color: var(--text-muted);
 }
 
-@keyframes photo-check-progress-indeterminate {
+@keyframes photo-check-progress-sheen {
     0% {
-        transform: translateX(-100%);
-    }
-    50% {
-        transform: translateX(0%);
+        background-position: 200% 50%;
     }
     100% {
-        transform: translateX(100%);
+        background-position: -200% 50%;
+    }
+}
+
+@keyframes photo-check-progress-pulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.35);
+    }
+    60% {
+        transform: scale(1.08);
+        box-shadow: 0 0 0 10px rgba(79, 70, 229, 0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
     }
 }
 
