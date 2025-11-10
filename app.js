@@ -75,6 +75,8 @@ const photoCheckSummary = document.getElementById('photo-check-summary');
 const photoCheckReport = document.getElementById('photo-check-report');
 const photoCheckPreview = document.getElementById('photo-check-preview');
 const photoCheckImagePreview = document.getElementById('photo-check-image-preview');
+const photoCheckProgress = document.getElementById('photo-check-progress');
+const photoCheckProgressLabel = document.getElementById('photo-check-progress-label');
 const wizardPanel = document.getElementById('wizard-panel');
 const openWizardPanelLink = document.getElementById('open-wizard-panel');
 const closeWizardPanelLink = document.getElementById('close-wizard-panel');
@@ -214,6 +216,9 @@ closePhotoCheckPanelLink?.addEventListener('click', (event) => {
 });
 
 photoCheckImageInput?.addEventListener('change', () => {
+    if (!photoCheckSubmitButton?.disabled) {
+        hidePhotoCheckProgress();
+    }
     setPhotoCheckStatus('');
 });
 
@@ -228,12 +233,10 @@ photoCheckForm?.addEventListener('submit', async (event) => {
     const formData = new FormData();
     formData.append('image', file);
 
-    if (photoCheckSubmitButton) {
-        photoCheckSubmitButton.disabled = true;
-    }
-
+    setPhotoCheckButtonState(true);
     resetPhotoCheckResults();
-    setPhotoCheckStatus('正在分析照片，请稍候…');
+    setPhotoCheckStatus('');
+    showPhotoCheckProgress('正在上传照片并调用 AI 检查…');
 
     try {
         const response = await fetch('/api/photo-check', {
@@ -248,17 +251,22 @@ photoCheckForm?.addEventListener('submit', async (event) => {
             throw new Error(message);
         }
 
+        updatePhotoCheckProgress('检查完成，正在整理结果…');
         renderPhotoCheckResults(data);
         const hasProblems = Array.isArray(data?.problems) && data.problems.length > 0;
-        setPhotoCheckStatus(hasProblems ? '检查完成，以下为识别结果。' : '检查完成，但未能识别出具体题目。', hasProblems ? 'success' : undefined);
+        hidePhotoCheckProgress();
+        setPhotoCheckStatus(
+            hasProblems ? '检查完成，以下为识别结果。' : '检查完成，但未能识别出具体题目。',
+            hasProblems ? 'success' : undefined
+        );
     } catch (error) {
         console.error('Photo check failed', error);
         resetPhotoCheckResults();
+        hidePhotoCheckProgress();
         setPhotoCheckStatus(error?.message || '无法完成检查，请稍后重试。', 'error');
     } finally {
-        if (photoCheckSubmitButton) {
-            photoCheckSubmitButton.disabled = false;
-        }
+        hidePhotoCheckProgress();
+        setPhotoCheckButtonState(false);
     }
 });
 
@@ -1732,6 +1740,8 @@ function resetPhotoCheckPanel() {
     photoCheckForm?.reset();
     resetPhotoCheckResults();
     setPhotoCheckStatus('');
+    hidePhotoCheckProgress();
+    setPhotoCheckButtonState(false);
 }
 
 function setPhotoCheckStatus(message, variant) {
@@ -1746,6 +1756,36 @@ function setPhotoCheckStatus(message, variant) {
     } else if (variant === 'success') {
         photoCheckStatus.classList.add('is-success');
     }
+}
+
+function setPhotoCheckButtonState(isProcessing) {
+    if (!photoCheckSubmitButton) {
+        return;
+    }
+    photoCheckSubmitButton.disabled = Boolean(isProcessing);
+    photoCheckSubmitButton.classList.toggle('is-busy', Boolean(isProcessing));
+}
+
+function showPhotoCheckProgress(message) {
+    if (!photoCheckProgress) {
+        return;
+    }
+    updatePhotoCheckProgress(message);
+    photoCheckProgress.hidden = false;
+}
+
+function updatePhotoCheckProgress(message) {
+    if (photoCheckProgressLabel) {
+        photoCheckProgressLabel.textContent = message || '';
+    }
+}
+
+function hidePhotoCheckProgress() {
+    if (!photoCheckProgress) {
+        return;
+    }
+    photoCheckProgress.hidden = true;
+    updatePhotoCheckProgress('');
 }
 
 function renderPhotoCheckResults(result) {

@@ -183,9 +183,52 @@ body {
 
 .photo-check-status {
     min-height: 1.25rem;
-    margin: -0.5rem 0 0;
+    margin: 0.25rem 0 0;
     font-size: 0.95rem;
     color: var(--text-muted);
+}
+
+.photo-check-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0.25rem 0 0;
+}
+
+.photo-check-progress__bar {
+    position: relative;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    overflow: hidden;
+}
+
+.photo-check-progress__indicator {
+    position: absolute;
+    inset: 0;
+    width: 40%;
+    min-width: 2.5rem;
+    background: var(--accent);
+    border-radius: inherit;
+    animation: photo-check-progress-indeterminate 1.25s ease-in-out infinite;
+}
+
+.photo-check-progress__label {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+@keyframes photo-check-progress-indeterminate {
+    0% {
+        transform: translateX(-100%);
+    }
+    50% {
+        transform: translateX(0%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
 }
 
 .photo-check-status.is-error {
@@ -490,6 +533,16 @@ select:focus {
     height: 2.2rem;
 }
 
+.btn:disabled,
+.btn-icon:disabled,
+.btn.is-busy,
+.btn-icon.is-busy {
+    cursor: not-allowed;
+    opacity: 0.6;
+    box-shadow: none;
+    transform: none;
+}
+
 .btn:hover,
 .btn-icon:hover {
     transform: translateY(-1px);
@@ -509,6 +562,12 @@ select:focus {
 .btn-danger {
     background: rgba(217, 45, 32, 0.12);
     color: var(--danger);
+}
+
+.btn-primary:disabled,
+.btn-primary.is-busy {
+    background: #c7d2fe;
+    color: #fff;
 }
 
 .panel-footer {

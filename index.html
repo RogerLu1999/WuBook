@@ -226,6 +226,13 @@
                 <button type="submit" id="photo-check-submit" class="btn btn-primary field--span-2">开始检查</button>
             </form>
 
+            <div id="photo-check-progress" class="photo-check-progress" role="status" aria-live="polite" hidden>
+                <div class="photo-check-progress__bar" aria-hidden="true">
+                    <div class="photo-check-progress__indicator"></div>
+                </div>
+                <p id="photo-check-progress-label" class="photo-check-progress__label"></p>
+            </div>
+
             <p id="photo-check-status" class="photo-check-status" role="status" aria-live="polite"></p>
 
             <section id="photo-check-results" class="photo-check-results" hidden>
