@@ -176,8 +176,8 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
 
         const baseProblems = clonePhotoCheckProblems(visionAttempt.problems);
         const reviewAttempts = await reviewPhotoCheckProblemsWithQwenMultiple(baseProblems, 2);
-        const attempts = reviewAttempts.length > 0 ? reviewAttempts : [visionAttempt];
-        const primaryAttempt = attempts[0] || createEmptyPhotoCheckAttempt();
+        const attempts = [visionAttempt, ...reviewAttempts].filter(Boolean);
+        const primaryAttempt = reviewAttempts[0] || visionAttempt || createEmptyPhotoCheckAttempt();
 
         await logAction('photo-check', 'success', {
             provider: 'qwen',
@@ -198,7 +198,10 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
                 height: previewMetadata.height || null
             },
             attempts: attempts.map((attempt, index) => ({
-                attempt: index + 1,
+                attempt:
+                    Number.isFinite(Number(attempt?.index)) && Number(attempt.index) > 0
+                        ? Number(attempt.index)
+                        : index + 1,
                 summary: attempt.summary,
                 problems: attempt.problems
             }))
@@ -757,7 +760,7 @@ async function reviewPhotoCheckProblemsWithQwen(problems) {
         throw new Error('当前运行环境不支持向 Qwen 发起请求。');
     }
 
-    const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
+    const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation';
     const model = process.env.QWEN_QA_MODEL || 'qwen-max';
 
     const systemPrompt =
