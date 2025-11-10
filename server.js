@@ -162,18 +162,26 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
 
     try {
         const preparedImage = await preparePhotoCheckImage(req.file.buffer);
-        const analysis = await analyzePhotoWithQwen(preparedImage);
-        const normalized = normalizePhotoCheckAnalysis(analysis);
+        const attempts = await analyzePhotoWithQwenMultiple(preparedImage, 2);
+        const primaryAttempt = attempts[0] || createEmptyPhotoCheckAttempt();
 
         await logAction('photo-check', 'success', {
             provider: 'qwen',
-            total: normalized.summary.total,
-            correct: normalized.summary.correct,
-            incorrect: normalized.summary.incorrect,
-            unknown: normalized.summary.unknown
+            total: primaryAttempt.summary.total,
+            correct: primaryAttempt.summary.correct,
+            incorrect: primaryAttempt.summary.incorrect,
+            unknown: primaryAttempt.summary.unknown
         });
 
-        res.json(normalized);
+        res.json({
+            summary: primaryAttempt.summary,
+            problems: primaryAttempt.problems,
+            attempts: attempts.map((attempt, index) => ({
+                attempt: index + 1,
+                summary: attempt.summary,
+                problems: attempt.problems
+            }))
+        });
     } catch (error) {
         console.error(error);
         await logAction('photo-check', 'error', { message: error.message });
@@ -490,6 +498,19 @@ async function analyzePhotoWithQwen(buffer) {
     return parsed;
 }
 
+async function analyzePhotoWithQwenMultiple(buffer, count = 2) {
+    const attempts = [];
+    const numericCount = Number(count);
+    const totalCount = Math.max(1, Number.isFinite(numericCount) ? Math.floor(numericCount) : 1);
+
+    for (let index = 0; index < totalCount; index += 1) {
+        const analysis = await analyzePhotoWithQwen(buffer);
+        attempts.push(normalizePhotoCheckAnalysis(analysis));
+    }
+
+    return attempts;
+}
+
 function parsePhotoCheckJson(text) {
     if (!text) return null;
     const cleaned = text
@@ -560,6 +581,18 @@ function normalizePhotoCheckAnalysis(raw) {
             correct,
             incorrect,
             unknown
+        }
+    };
+}
+
+function createEmptyPhotoCheckAttempt() {
+    return {
+        problems: [],
+        summary: {
+            total: 0,
+            correct: 0,
+            incorrect: 0,
+            unknown: 0
         }
     };
 }
