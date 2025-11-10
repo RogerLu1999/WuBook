@@ -1751,64 +1751,215 @@ function renderPhotoCheckResults(result) {
         return;
     }
 
-    const problems = Array.isArray(result?.problems) ? result.problems : [];
-    const normalizedProblems = problems
-        .map((problem, index) => normalizePhotoCheckProblem(problem, index))
-        .filter(Boolean);
-
-    const summary = result?.summary || {};
-    const total = Number.isFinite(summary.total) ? summary.total : normalizedProblems.length;
-    const correctCount = Number.isFinite(summary.correct)
-        ? summary.correct
-        : normalizedProblems.filter((item) => item.isCorrect === true).length;
-    const incorrectCount = Number.isFinite(summary.incorrect)
-        ? summary.incorrect
-        : normalizedProblems.filter((item) => item.isCorrect === false).length;
-    const unknownCount = Math.max(0, total - correctCount - incorrectCount);
+    const attempts = normalizePhotoCheckResultAttempts(result);
+    const summaryText = buildPhotoCheckOverallSummary(attempts);
 
     photoCheckReport.innerHTML = '';
 
-    normalizedProblems.forEach((problem) => {
-        const item = document.createElement('li');
-        item.classList.add('photo-check-report__item');
-        if (problem.isCorrect === true) {
-            item.classList.add('is-correct');
-        } else if (problem.isCorrect === false) {
-            item.classList.add('is-incorrect');
+    attempts.forEach((attempt) => {
+        const attemptItem = document.createElement('li');
+        attemptItem.className = 'photo-check-report__attempt';
+        attemptItem.dataset.attempt = String(attempt.index);
+
+        const heading = document.createElement('h3');
+        heading.className = 'photo-check-report__attempt-heading';
+        heading.textContent = `第 ${attempt.index} 次 Qwen 调用结果`;
+        attemptItem.appendChild(heading);
+
+        const attemptSummary = document.createElement('p');
+        attemptSummary.className = 'photo-check-report__attempt-summary';
+        attemptSummary.textContent = formatPhotoCheckAttemptSummary(attempt, { withPrefix: false });
+        attemptItem.appendChild(attemptSummary);
+
+        if (attempt.problems.length > 0) {
+            const problemsList = document.createElement('ol');
+            problemsList.className = 'photo-check-report__attempt-list';
+            attempt.problems.forEach((problem) => {
+                problemsList.appendChild(createPhotoCheckProblemItem(problem));
+            });
+            attemptItem.appendChild(problemsList);
+        } else {
+            const empty = document.createElement('p');
+            empty.className = 'photo-check-report__attempt-empty';
+            empty.textContent = '未能识别出具体题目。';
+            attemptItem.appendChild(empty);
         }
 
-        const heading = document.createElement('h4');
-        heading.className = 'photo-check-report__heading';
-        let statusLabel = '结果不确定';
-        if (problem.isCorrect === true) {
-            statusLabel = '回答正确';
-        } else if (problem.isCorrect === false) {
-            statusLabel = '需要复查';
-        }
-        heading.textContent = `第 ${problem.index} 题：${statusLabel}`;
-        item.appendChild(heading);
-
-        appendPhotoCheckSection(item, '题目', problem.question);
-        appendPhotoCheckSection(item, '手写答案', problem.studentAnswer);
-        appendPhotoCheckSection(item, '参考解答', problem.solvedAnswer);
-        appendPhotoCheckSection(item, '分析', problem.analysis);
-
-        photoCheckReport.appendChild(item);
+        photoCheckReport.appendChild(attemptItem);
     });
 
-    const summaryParts = [];
-    if (total > 0) {
-        summaryParts.push(`共 ${total} 题`);
-        summaryParts.push(`${correctCount} 题正确`);
-        summaryParts.push(`${incorrectCount} 题需要复查`);
-        if (unknownCount > 0) {
-            summaryParts.push(`${unknownCount} 题待人工确认`);
+    photoCheckSummary.textContent = summaryText;
+    photoCheckResultsSection.hidden = false;
+}
+
+function normalizePhotoCheckResultAttempts(result) {
+    if (!result) {
+        return [];
+    }
+
+    if (Array.isArray(result.attempts) && result.attempts.length > 0) {
+        return result.attempts.map((attempt, index) => normalizePhotoCheckAttempt(attempt, index)).filter(Boolean);
+    }
+
+    const fallbackAttempt = normalizePhotoCheckAttempt(
+        {
+            attempt: 1,
+            summary: result.summary,
+            problems: result.problems
+        },
+        0
+    );
+
+    return fallbackAttempt ? [fallbackAttempt] : [];
+}
+
+function normalizePhotoCheckAttempt(attempt, index) {
+    if (!attempt) {
+        return null;
+    }
+
+    const attemptIndexValue = Number(attempt.attempt ?? attempt.index);
+    const attemptIndex = Number.isFinite(attemptIndexValue) && attemptIndexValue > 0 ? attemptIndexValue : index + 1;
+
+    const problemsInput = Array.isArray(attempt.problems) ? attempt.problems : [];
+    const normalizedProblems = problemsInput
+        .map((problem, problemIndex) => normalizePhotoCheckProblem(problem, problemIndex))
+        .filter(Boolean);
+
+    const summaryInput = attempt.summary || {};
+    const fallbackTotal = normalizedProblems.length;
+    const fallbackCorrect = normalizedProblems.filter((item) => item.isCorrect === true).length;
+    const fallbackIncorrect = normalizedProblems.filter((item) => item.isCorrect === false).length;
+
+    let total = normalizePhotoCheckCount(summaryInput.total);
+    let correct = normalizePhotoCheckCount(summaryInput.correct);
+    let incorrect = normalizePhotoCheckCount(summaryInput.incorrect);
+    let unknown = normalizePhotoCheckCount(summaryInput.unknown);
+
+    if (total == null) {
+        total = fallbackTotal;
+    }
+    if (correct == null) {
+        correct = fallbackCorrect;
+    }
+    if (incorrect == null) {
+        incorrect = fallbackIncorrect;
+    }
+    if (unknown == null) {
+        unknown = Math.max(0, total - correct - incorrect);
+    }
+
+    if (total < normalizedProblems.length) {
+        total = normalizedProblems.length;
+        if (summaryInput.unknown == null) {
+            unknown = Math.max(0, total - correct - incorrect);
         }
     }
 
-    const summaryText = summaryParts.length > 0 ? summaryParts.join('，') + '。' : '未能从照片中识别出题目。';
-    photoCheckSummary.textContent = summaryText;
-    photoCheckResultsSection.hidden = false;
+    total = Math.max(0, total);
+    correct = Math.max(0, correct);
+    incorrect = Math.max(0, incorrect);
+    unknown = Math.max(0, unknown);
+
+    return {
+        index: attemptIndex,
+        summary: {
+            total,
+            correct,
+            incorrect,
+            unknown
+        },
+        problems: normalizedProblems
+    };
+}
+
+function normalizePhotoCheckCount(value) {
+    if (value == null) {
+        return null;
+    }
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return null;
+    }
+    return Math.max(0, Math.round(number));
+}
+
+function formatPhotoCheckAttemptSummary(attempt, { withPrefix = false } = {}) {
+    if (!attempt || !attempt.summary) {
+        if (withPrefix) {
+            const label = Number.isFinite(Number(attempt?.index)) ? `第 ${attempt.index} 次调用` : '本次调用';
+            return `${label}未能识别出题目`;
+        }
+        return '未能识别出题目';
+    }
+
+    const { summary } = attempt;
+    const parts = [];
+
+    if (summary.total > 0) {
+        parts.push(`共 ${summary.total} 题`);
+        parts.push(`${summary.correct} 题正确`);
+        parts.push(`${summary.incorrect} 题需要复查`);
+        if (summary.unknown > 0) {
+            parts.push(`${summary.unknown} 题待人工确认`);
+        }
+
+        if (withPrefix) {
+            return `第 ${attempt.index} 次调用：${parts.join('，')}`;
+        }
+        return parts.join('，');
+    }
+
+    if (withPrefix) {
+        return `第 ${attempt.index} 次调用未能识别出题目`;
+    }
+    return '未能识别出题目';
+}
+
+function buildPhotoCheckOverallSummary(attempts) {
+    if (!Array.isArray(attempts) || attempts.length === 0) {
+        return '未能从照片中识别出题目。';
+    }
+
+    const includePrefix = attempts.length > 1;
+    const parts = attempts
+        .map((attempt) => formatPhotoCheckAttemptSummary(attempt, { withPrefix: includePrefix }))
+        .filter((text) => Boolean(text && text.trim()));
+
+    if (parts.length === 0) {
+        return '未能从照片中识别出题目。';
+    }
+
+    return `${parts.join('；')}。`;
+}
+
+function createPhotoCheckProblemItem(problem) {
+    const item = document.createElement('li');
+    item.classList.add('photo-check-report__item');
+
+    if (problem.isCorrect === true) {
+        item.classList.add('is-correct');
+    } else if (problem.isCorrect === false) {
+        item.classList.add('is-incorrect');
+    }
+
+    const heading = document.createElement('h4');
+    heading.className = 'photo-check-report__heading';
+    let statusLabel = '结果不确定';
+    if (problem.isCorrect === true) {
+        statusLabel = '回答正确';
+    } else if (problem.isCorrect === false) {
+        statusLabel = '需要复查';
+    }
+    heading.textContent = `第 ${problem.index} 题：${statusLabel}`;
+    item.appendChild(heading);
+
+    appendPhotoCheckSection(item, '题目', problem.question);
+    appendPhotoCheckSection(item, '手写答案', problem.studentAnswer);
+    appendPhotoCheckSection(item, '参考解答', problem.solvedAnswer);
+    appendPhotoCheckSection(item, '分析', problem.analysis);
+
+    return item;
 }
 
 function appendPhotoCheckSection(container, label, value) {
