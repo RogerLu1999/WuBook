@@ -73,6 +73,8 @@ const photoCheckStatus = document.getElementById('photo-check-status');
 const photoCheckResultsSection = document.getElementById('photo-check-results');
 const photoCheckSummary = document.getElementById('photo-check-summary');
 const photoCheckReport = document.getElementById('photo-check-report');
+const photoCheckPreview = document.getElementById('photo-check-preview');
+const photoCheckImagePreview = document.getElementById('photo-check-image-preview');
 const wizardPanel = document.getElementById('wizard-panel');
 const openWizardPanelLink = document.getElementById('open-wizard-panel');
 const closeWizardPanelLink = document.getElementById('close-wizard-panel');
@@ -1754,10 +1756,12 @@ function renderPhotoCheckResults(result) {
     const attempts = normalizePhotoCheckResultAttempts(result);
     const summaryText = buildPhotoCheckOverallSummary(attempts);
 
+    updatePhotoCheckPreview(result);
+
     photoCheckReport.innerHTML = '';
 
     attempts.forEach((attempt) => {
-        const attemptItem = document.createElement('li');
+        const attemptItem = document.createElement('article');
         attemptItem.className = 'photo-check-report__attempt';
         attemptItem.dataset.attempt = String(attempt.index);
 
@@ -1790,6 +1794,44 @@ function renderPhotoCheckResults(result) {
 
     photoCheckSummary.textContent = summaryText;
     photoCheckResultsSection.hidden = false;
+}
+
+function updatePhotoCheckPreview(result) {
+    if (!photoCheckPreview || !photoCheckImagePreview) {
+        return;
+    }
+
+    const previewUrl = extractPhotoCheckPreviewUrl(result);
+
+    if (previewUrl) {
+        photoCheckImagePreview.src = previewUrl;
+        photoCheckImagePreview.alt = '上传照片预览';
+        photoCheckPreview.hidden = false;
+    } else {
+        photoCheckImagePreview.removeAttribute('src');
+        photoCheckImagePreview.alt = '';
+        photoCheckPreview.hidden = true;
+    }
+}
+
+function extractPhotoCheckPreviewUrl(result) {
+    if (!result || !result.image) {
+        return '';
+    }
+
+    if (typeof result.image === 'string') {
+        return result.image.trim();
+    }
+
+    if (typeof result.image.url === 'string' && result.image.url.trim()) {
+        return result.image.url.trim();
+    }
+
+    if (typeof result.image.dataUrl === 'string' && result.image.dataUrl.trim()) {
+        return result.image.dataUrl.trim();
+    }
+
+    return '';
 }
 
 function normalizePhotoCheckResultAttempts(result) {
@@ -1986,6 +2028,11 @@ function resetPhotoCheckResults() {
     }
     if (photoCheckSummary) {
         photoCheckSummary.textContent = '';
+    }
+    if (photoCheckPreview && photoCheckImagePreview) {
+        photoCheckImagePreview.removeAttribute('src');
+        photoCheckImagePreview.alt = '';
+        photoCheckPreview.hidden = true;
     }
     if (photoCheckResultsSection) {
         photoCheckResultsSection.hidden = true;

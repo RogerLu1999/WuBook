@@ -173,9 +173,19 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
             unknown: primaryAttempt.summary.unknown
         });
 
+        const previewImageUrl = `data:image/png;base64,${preparedImage.toString('base64')}`;
+        const previewMetadata = await sharp(preparedImage)
+            .metadata()
+            .catch(() => ({}));
+
         res.json({
             summary: primaryAttempt.summary,
             problems: primaryAttempt.problems,
+            image: {
+                url: previewImageUrl,
+                width: previewMetadata?.width || null,
+                height: previewMetadata?.height || null
+            },
             attempts: attempts.map((attempt, index) => ({
                 attempt: index + 1,
                 summary: attempt.summary,
