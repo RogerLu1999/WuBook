@@ -164,12 +164,19 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
     try {
         const preparedImage = await preparePhotoCheckImage(req.file.buffer);
         const photoInfo = await savePhotoCheckOriginalImage(preparedImage);
-        const attempts = await analyzePhotoWithQwenMultiple(preparedImage, 2);
-        await attachPhotoCheckProblemImages(attempts, {
+
+        const visionAnalysis = await analyzePhotoWithQwen(preparedImage);
+        const visionAttempt = normalizePhotoCheckAnalysis(visionAnalysis);
+
+        await attachPhotoCheckProblemImages([visionAttempt], {
             buffer: preparedImage,
             metadata: photoInfo?.metadata || null,
             baseName: photoInfo?.baseName || null
         });
+
+        const baseProblems = clonePhotoCheckProblems(visionAttempt.problems);
+        const reviewAttempts = await reviewPhotoCheckProblemsWithQwenMultiple(baseProblems, 2);
+        const attempts = reviewAttempts.length > 0 ? reviewAttempts : [visionAttempt];
         const primaryAttempt = attempts[0] || createEmptyPhotoCheckAttempt();
 
         await logAction('photo-check', 'success', {
@@ -713,17 +720,239 @@ async function analyzePhotoWithQwen(buffer) {
     return parsed;
 }
 
-async function analyzePhotoWithQwenMultiple(buffer, count = 2) {
+async function reviewPhotoCheckProblemsWithQwenMultiple(problems, count = 2) {
+    if (!Array.isArray(problems) || problems.length === 0) {
+        return [];
+    }
+
     const attempts = [];
     const numericCount = Number(count);
     const totalCount = Math.max(1, Number.isFinite(numericCount) ? Math.floor(numericCount) : 1);
 
     for (let index = 0; index < totalCount; index += 1) {
-        const analysis = await analyzePhotoWithQwen(buffer);
-        attempts.push(normalizePhotoCheckAnalysis(analysis));
+        try {
+            const attempt = await reviewPhotoCheckProblemsWithQwen(clonePhotoCheckProblems(problems));
+            if (attempt) {
+                attempts.push(attempt);
+            }
+        } catch (error) {
+            console.warn('Failed to review problems with Qwen', error);
+        }
     }
 
     return attempts;
+}
+
+async function reviewPhotoCheckProblemsWithQwen(problems) {
+    if (!Array.isArray(problems) || problems.length === 0) {
+        return createEmptyPhotoCheckAttempt();
+    }
+
+    const apiKey = process.env.DASHSCOPE_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 Qwen API Key 配置。');
+    }
+
+    if (typeof fetch !== 'function') {
+        throw new Error('当前运行环境不支持向 Qwen 发起请求。');
+    }
+
+    const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
+    const model = process.env.QWEN_QA_MODEL || 'qwen-max';
+
+    const systemPrompt =
+        '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
+    const userPrompt = buildPhotoCheckTextReviewPrompt(problems);
+
+    const payload = {
+        model,
+        input: {
+            messages: [
+                {
+                    role: 'system',
+                    content: [{ text: systemPrompt }]
+                },
+                {
+                    role: 'user',
+                    content: [{ text: userPrompt }]
+                }
+            ]
+        },
+        parameters: {
+            result_format: 'text'
+        }
+    };
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = result?.message || `Qwen API 请求失败（${response.status}）`;
+        throw new Error(message);
+    }
+
+    if (result?.code && Number(result.code) !== 200) {
+        const message = result?.message || 'Qwen API 返回错误。';
+        throw new Error(message);
+    }
+
+    const text = extractTextFromQwenResponse(result);
+    if (!text) {
+        throw new Error('Qwen 未返回检查结果。');
+    }
+
+    const parsed = parsePhotoCheckJson(text);
+    if (!parsed) {
+        throw new Error('Qwen 返回结果格式不正确。');
+    }
+
+    return mergePhotoCheckTextReview(parsed, problems);
+}
+
+function buildPhotoCheckTextReviewPrompt(problems) {
+    const input = {
+        problems: problems.map((problem) => ({
+            index: Number(problem.index) || 0,
+            question: sanitizePhotoCheckText(problem.question),
+            student_answer: sanitizePhotoCheckText(problem.studentAnswer),
+            previous_model_answer: sanitizePhotoCheckText(problem.solvedAnswer),
+            previous_analysis: sanitizePhotoCheckText(problem.analysis)
+        }))
+    };
+
+    return [
+        '请根据以下 OCR 识别得到的题目文本和学生手写答案，逐题核对作答是否正确。',
+        '要求：',
+        '1. 按照题目给出的 index 顺序返回结果，不要增删题目。',
+        '2. 每题需给出 model_answer（你的标准答案）和简洁的 analysis（核对说明或解题要点）。',
+        '3. 对学生答案的判断写在 is_correct 字段：正确为 true，错误为 false，无法判断为 null。',
+        '4. 仅返回 JSON，格式如下：',
+        '{',
+        '  "problems": [',
+        '    { "index": 1, "model_answer": "", "analysis": "", "is_correct": true/false/null }',
+        '  ],',
+        '  "summary": { "total": 题目数, "correct": 正确数, "incorrect": 错误数, "unknown": 未知数 }',
+        '}',
+        '以下是题目信息：',
+        JSON.stringify(input, null, 2)
+    ].join('\n');
+}
+
+function mergePhotoCheckTextReview(raw, baseProblems) {
+    const normalized = normalizePhotoCheckAnalysis(raw);
+    const overrides = new Map();
+
+    normalized.problems.forEach((problem) => {
+        if (problem && Number.isFinite(Number(problem.index))) {
+            overrides.set(Number(problem.index), problem);
+        }
+    });
+
+    const mergedProblems = Array.isArray(baseProblems)
+        ? baseProblems.map((base) => {
+              const override = overrides.get(base.index) || null;
+              const cloned = clonePhotoCheckProblem(base);
+              if (!override) {
+                  return cloned;
+              }
+
+              if (override.solvedAnswer) {
+                  cloned.solvedAnswer = override.solvedAnswer;
+              }
+              if (override.analysis) {
+                  cloned.analysis = override.analysis;
+              }
+              if (override.isCorrect != null) {
+                  cloned.isCorrect = override.isCorrect;
+              }
+
+              return cloned;
+          })
+        : [];
+
+    const summaryInput = raw?.summary || {};
+    let total = toFiniteNumber(summaryInput.total);
+    let correct = toFiniteNumber(summaryInput.correct);
+    let incorrect = toFiniteNumber(summaryInput.incorrect);
+    let unknown = toFiniteNumber(summaryInput.unknown);
+
+    if (!Number.isFinite(total)) {
+        total = mergedProblems.length;
+    }
+
+    if (!Number.isFinite(correct)) {
+        correct = mergedProblems.filter((problem) => problem.isCorrect === true).length;
+    }
+
+    if (!Number.isFinite(incorrect)) {
+        incorrect = mergedProblems.filter((problem) => problem.isCorrect === false).length;
+    }
+
+    if (!Number.isFinite(unknown)) {
+        unknown = Math.max(0, total - correct - incorrect);
+    }
+
+    total = Math.max(total, mergedProblems.length);
+
+    return {
+        problems: mergedProblems,
+        summary: {
+            total,
+            correct,
+            incorrect,
+            unknown
+        }
+    };
+}
+
+function clonePhotoCheckProblems(problems) {
+    if (!Array.isArray(problems)) {
+        return [];
+    }
+
+    return problems
+        .map((problem) => clonePhotoCheckProblem(problem))
+        .filter((problem) => problem != null);
+}
+
+function clonePhotoCheckProblem(problem) {
+    if (!problem || typeof problem !== 'object') {
+        return null;
+    }
+
+    const boundingBox = problem.boundingBox ? { ...problem.boundingBox } : null;
+    const image = problem.image
+        ? {
+              ...problem.image,
+              boundingBox: problem.image.boundingBox ? { ...problem.image.boundingBox } : null
+          }
+        : null;
+
+    let isCorrect = null;
+    if (problem.isCorrect === true) {
+        isCorrect = true;
+    } else if (problem.isCorrect === false) {
+        isCorrect = false;
+    }
+
+    return {
+        index: problem.index,
+        question: sanitizePhotoCheckText(problem.question),
+        studentAnswer: sanitizePhotoCheckText(problem.studentAnswer),
+        solvedAnswer: sanitizePhotoCheckText(problem.solvedAnswer),
+        analysis: sanitizePhotoCheckText(problem.analysis),
+        isCorrect,
+        boundingBox,
+        image
+    };
 }
 
 function parsePhotoCheckJson(text) {
