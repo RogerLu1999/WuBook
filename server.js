@@ -175,12 +175,12 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
         });
 
         const baseProblems = clonePhotoCheckProblems(visionAttempt.problems);
-        const reviewAttempts = await reviewPhotoCheckProblemsWithQwenMultiple(baseProblems, 2);
+        const reviewAttempts = await reviewPhotoCheckProblemsWithMultipleModels(baseProblems);
         const attempts = [visionAttempt, ...reviewAttempts].filter(Boolean);
         const primaryAttempt = reviewAttempts[0] || visionAttempt || createEmptyPhotoCheckAttempt();
 
         await logAction('photo-check', 'success', {
-            provider: 'qwen',
+            provider: 'qwen+kimi',
             total: primaryAttempt.summary.total,
             correct: primaryAttempt.summary.correct,
             incorrect: primaryAttempt.summary.incorrect,
@@ -723,24 +723,29 @@ async function analyzePhotoWithQwen(buffer) {
     return parsed;
 }
 
-async function reviewPhotoCheckProblemsWithQwenMultiple(problems, count = 2) {
+async function reviewPhotoCheckProblemsWithMultipleModels(problems) {
     if (!Array.isArray(problems) || problems.length === 0) {
         return [];
     }
 
     const attempts = [];
-    const numericCount = Number(count);
-    const totalCount = Math.max(1, Number.isFinite(numericCount) ? Math.floor(numericCount) : 1);
 
-    for (let index = 0; index < totalCount; index += 1) {
-        try {
-            const attempt = await reviewPhotoCheckProblemsWithQwen(clonePhotoCheckProblems(problems));
-            if (attempt) {
-                attempts.push(attempt);
-            }
-        } catch (error) {
-            console.warn('Failed to review problems with Qwen', error);
+    try {
+        const attempt = await reviewPhotoCheckProblemsWithQwen(clonePhotoCheckProblems(problems));
+        if (attempt) {
+            attempts.push(attempt);
         }
+    } catch (error) {
+        console.warn('Failed to review problems with Qwen', error);
+    }
+
+    try {
+        const attempt = await reviewPhotoCheckProblemsWithKimi(clonePhotoCheckProblems(problems));
+        if (attempt) {
+            attempts.push(attempt);
+        }
+    } catch (error) {
+        console.warn('Failed to review problems with Kimi', error);
     }
 
     return attempts;
@@ -818,6 +823,93 @@ async function reviewPhotoCheckProblemsWithQwen(problems) {
     }
 
     return mergePhotoCheckTextReview(parsed, problems);
+}
+
+async function reviewPhotoCheckProblemsWithKimi(problems) {
+    if (!Array.isArray(problems) || problems.length === 0) {
+        return createEmptyPhotoCheckAttempt();
+    }
+
+    const apiKey = process.env.MOONSHOT_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 Kimi API Key 配置。');
+    }
+
+    if (typeof fetch !== 'function') {
+        throw new Error('当前运行环境不支持向 Kimi 发起请求。');
+    }
+
+    const endpoint = 'https://api.moonshot.cn/v1/chat/completions';
+    const model = 'k0-math';
+
+    const systemPrompt =
+        '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
+    const userPrompt = buildPhotoCheckTextReviewPrompt(problems);
+
+    const payload = {
+        model,
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+        ],
+        temperature: 0
+    };
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = result?.error?.message || `Kimi API 请求失败（${response.status}）`;
+        throw new Error(message);
+    }
+
+    const text = extractTextFromKimiResponse(result);
+    if (!text) {
+        throw new Error('Kimi 未返回检查结果。');
+    }
+
+    const parsed = parsePhotoCheckJson(text);
+    if (!parsed) {
+        throw new Error('Kimi 返回结果格式不正确。');
+    }
+
+    return mergePhotoCheckTextReview(parsed, problems);
+}
+
+function extractTextFromKimiResponse(result) {
+    if (!result) return '';
+
+    const choices = Array.isArray(result.choices) ? result.choices : [];
+    for (const choice of choices) {
+        const message = choice?.message;
+        if (typeof message?.content === 'string') {
+            return message.content.trim();
+        }
+
+        if (Array.isArray(message?.content)) {
+            const parts = message.content
+                .map((part) => (typeof part === 'string' ? part : part?.text || ''))
+                .filter(Boolean)
+                .join('');
+            if (parts) {
+                return parts.trim();
+            }
+        }
+    }
+
+    if (typeof result?.data === 'string') {
+        return result.data.trim();
+    }
+
+    return '';
 }
 
 function buildPhotoCheckTextReviewPrompt(problems) {
