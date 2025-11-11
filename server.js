@@ -4,6 +4,16 @@ const fsp = require('fs/promises');
 const multer = require('multer');
 const sharp = require('sharp');
 const { randomUUID } = require('crypto');
+const https = require('https');
+const dns = require('dns');
+
+if (typeof dns.setDefaultResultOrder === 'function') {
+    try {
+        dns.setDefaultResultOrder('ipv4first');
+    } catch (error) {
+        console.warn('Failed to set DNS default result order', error);
+    }
+}
 const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } = require('docx');
 
 const app = express();
@@ -57,6 +67,20 @@ const SUBJECT_PREFIX_MAP = new Map([
     ['Politics', 'Z'],
     ['Science', 'S']
 ]);
+
+const preferIPv4Lookup =
+    typeof dns.lookup === 'function'
+        ? (hostname, options, callback) =>
+              dns.lookup(
+                  hostname,
+                  {
+                      ...options,
+                      family: 4,
+                      all: false
+                  },
+                  callback
+              )
+        : undefined;
 
 const uploadStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
@@ -835,10 +859,6 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
         throw new Error('缺少 Kimi API Key 配置。');
     }
 
-    if (typeof fetch !== 'function') {
-        throw new Error('当前运行环境不支持向 Kimi 发起请求。');
-    }
-
     const endpoint = 'https://api.moonshot.cn/v1/chat/completions';
     const model = 'k0-math';
 
@@ -855,23 +875,42 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
         temperature: 0
     };
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload)
-    });
+    const timeoutMs = Number(process.env.MOONSHOT_TIMEOUT_MS) || 20000;
 
-    const result = await response.json().catch(() => ({}));
+    let requestResult;
+    try {
+        requestResult = await postJsonWithHttps(endpoint, payload, {
+            headers: {
+                Authorization: `Bearer ${apiKey}`
+            },
+            timeoutMs,
+            preferIPv4: true
+        });
+    } catch (error) {
+        if (error?.code === 'ETIMEDOUT') {
+            throw new Error('连接 Kimi API 超时，请稍后重试。');
+        }
 
-    if (!response.ok) {
-        const message = result?.error?.message || `Kimi API 请求失败（${response.status}）`;
+        if (error?.code === 'ENOTFOUND' || error?.code === 'EAI_AGAIN') {
+            throw new Error('无法解析 Kimi API 域名，请检查网络连接。');
+        }
+
+        if (error?.code === 'ECONNRESET' || error?.code === 'ECONNREFUSED') {
+            throw new Error('无法连接到 Kimi API，请稍后重试。');
+        }
+
+        throw error;
+    }
+
+    if (!requestResult.ok) {
+        const message =
+            requestResult.body?.error?.message ||
+            requestResult.body?.message ||
+            `Kimi API 请求失败（${requestResult.status}）`;
         throw new Error(message);
     }
 
-    const text = extractTextFromKimiResponse(result);
+    const text = extractTextFromKimiResponse(requestResult.body);
     if (!text) {
         throw new Error('Kimi 未返回检查结果。');
     }
@@ -882,6 +921,78 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
     }
 
     return mergePhotoCheckTextReview(parsed, problems);
+}
+
+async function postJsonWithHttps(url, payload, options = {}) {
+    const { headers = {}, timeoutMs = 20000, preferIPv4 = false } = options;
+    const body = payload === undefined ? '' : JSON.stringify(payload);
+
+    const requestOptions = {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+            ...headers
+        }
+    };
+
+    if (preferIPv4 && typeof preferIPv4Lookup === 'function') {
+        requestOptions.lookup = preferIPv4Lookup;
+    }
+
+    return new Promise((resolve, reject) => {
+        const req = https.request(url, requestOptions, (res) => {
+            let raw = '';
+            res.setEncoding('utf8');
+
+            res.on('data', (chunk) => {
+                raw += chunk;
+            });
+
+            res.on('end', () => {
+                const parsed = safeJsonParse(raw);
+                resolve({
+                    ok: res.statusCode >= 200 && res.statusCode < 300,
+                    status: res.statusCode,
+                    headers: res.headers,
+                    body: parsed,
+                    rawBody: raw
+                });
+            });
+
+            res.on('error', reject);
+        });
+
+        req.on('error', (error) => {
+            if (error && error.code === 'ETIMEDOUT') {
+                error.message = `请求 ${url} 超时（>${timeoutMs}ms）`;
+            }
+            reject(error);
+        });
+
+        if (timeoutMs > 0) {
+            req.setTimeout(timeoutMs, () => {
+                req.destroy(
+                    Object.assign(new Error(`请求 ${url} 超时（>${timeoutMs}ms）`), { code: 'ETIMEDOUT' })
+                );
+            });
+        }
+
+        req.end(body);
+    });
+}
+
+function safeJsonParse(text) {
+    if (!text) {
+        return {};
+    }
+
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        console.warn('Failed to parse JSON response', text);
+        return {};
+    }
 }
 
 function extractTextFromKimiResponse(result) {
