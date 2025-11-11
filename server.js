@@ -70,7 +70,15 @@ const SUBJECT_PREFIX_MAP = new Map([
 
 const preferIPv4Lookup =
     typeof dns.lookup === 'function'
-        ? (hostname, options, callback) =>
+        ? (hostname, options, callback) => {
+              if (!hostname) {
+                  const error = Object.assign(new Error('Invalid hostname for IPv4 lookup'), {
+                      code: 'EINVAL'
+                  });
+                  process.nextTick(() => callback(error, null, 4));
+                  return;
+              }
+
               dns.lookup(
                   hostname,
                   {
@@ -79,8 +87,81 @@ const preferIPv4Lookup =
                       all: false
                   },
                   callback
-              )
+              );
+          }
         : undefined;
+
+async function verifyExternalConnections() {
+    const checks = [];
+
+    if (process.env.MOONSHOT_API_KEY) {
+        checks.push(
+            verifyKimiConnectivity()
+                .then(() => {
+                    console.log('Kimi connectivity check succeeded.');
+                })
+                .catch((error) => {
+                    console.warn('Kimi connectivity check failed', error);
+                })
+        );
+    } else {
+        console.warn('Skipping Kimi connectivity check because MOONSHOT_API_KEY is not configured.');
+    }
+
+    if (checks.length === 0) {
+        return;
+    }
+
+    await Promise.allSettled(checks);
+}
+
+async function verifyKimiConnectivity() {
+    const endpointUrl = new URL('https://api.moonshot.cn/v1/chat/completions');
+    const hostname = endpointUrl.hostname;
+
+    if (dns.promises?.lookup) {
+        const lookupResult = await dns.promises.lookup(hostname, { family: 4 }).catch((error) => {
+            throw Object.assign(new Error(`无法解析 Kimi API 域名 ${hostname}：${error.message}`), {
+                cause: error
+            });
+        });
+
+        if (!lookupResult || !lookupResult.address) {
+            throw new Error(`Kimi API 域名 ${hostname} 未返回有效的 IPv4 地址。`);
+        }
+    }
+
+    await new Promise((resolve, reject) => {
+        const request = https.request(
+            {
+                protocol: endpointUrl.protocol,
+                hostname,
+                port: endpointUrl.port || 443,
+                method: 'HEAD',
+                path: '/',
+                timeout: Number(process.env.MOONSHOT_TIMEOUT_MS) || 5000,
+                lookup: preferIPv4Lookup
+            },
+            (response) => {
+                response.resume();
+                response.once('end', resolve);
+                response.once('close', resolve);
+                response.once('error', reject);
+            }
+        );
+
+        request.on('timeout', () => {
+            request.destroy(
+                Object.assign(new Error('Kimi API 连通性检查超时。'), {
+                    code: 'ETIMEDOUT'
+                })
+            );
+        });
+
+        request.on('error', reject);
+        request.end();
+    });
+}
 
 const uploadStorage = multer.diskStorage({
     destination: async (req, file, cb) => {
@@ -1864,6 +1945,7 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, async () => {
     await ensureDirectories();
+    await verifyExternalConnections();
     console.log(`Wu(悟)Book server running on http://localhost:${PORT}`);
 });
 
