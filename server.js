@@ -71,11 +71,20 @@ const SUBJECT_PREFIX_MAP = new Map([
 const preferIPv4Lookup =
     typeof dns.lookup === 'function'
         ? (hostname, options, callback) => {
+              if (typeof options === 'function') {
+                  callback = options;
+                  options = {};
+              } else if (typeof options === 'number') {
+                  options = { family: options };
+              } else if (!options) {
+                  options = {};
+              }
+
               if (!hostname) {
                   const error = Object.assign(new Error('Invalid hostname for IPv4 lookup'), {
                       code: 'EINVAL'
                   });
-                  process.nextTick(() => callback(error, null, 4));
+                  process.nextTick(() => callback(error));
                   return;
               }
 
@@ -84,7 +93,8 @@ const preferIPv4Lookup =
                   {
                       ...options,
                       family: 4,
-                      all: false
+                      all: options.all === true,
+                      verbatim: options.verbatim === true
                   },
                   callback
               );
