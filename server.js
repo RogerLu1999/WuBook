@@ -951,7 +951,7 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
     }
 
     const endpoint = 'https://api.moonshot.cn/v1/chat/completions';
-    const model = 'k0-math';
+    const model = 'kimi-k2-thinking-turbo';
 
     const systemPrompt =
         '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
