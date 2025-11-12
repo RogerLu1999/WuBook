@@ -22,7 +22,17 @@ const state = {
         selection: new Set(),
         recordId: null,
         createdAt: null,
-        isSaving: false
+        isSaving: false,
+        history: {
+            items: [],
+            isLoading: false,
+            error: '',
+            lastLoadedAt: null,
+            selectedId: null,
+            loadingRecordId: null,
+            message: '',
+            messageVariant: ''
+        }
     }
 };
 
@@ -31,6 +41,13 @@ const MAX_IMAGE_ZOOM = 120;
 const DEFAULT_IMAGE_ZOOM = 100;
 
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+});
 
 const entryForm = document.getElementById('entry-form');
 const importInput = document.getElementById('import-input');
@@ -87,6 +104,9 @@ const photoCheckProgress = document.getElementById('photo-check-progress');
 const photoCheckProgressLabel = document.getElementById('photo-check-progress-label');
 const photoCheckActions = document.getElementById('photo-check-actions');
 const photoCheckSelectionStatus = document.getElementById('photo-check-selection-status');
+const photoCheckHistoryList = document.getElementById('photo-check-history-list');
+const photoCheckHistoryStatus = document.getElementById('photo-check-history-status');
+const photoCheckHistoryRefreshBtn = document.getElementById('photo-check-history-refresh');
 const photoCheckSaveBtn = document.getElementById('photo-check-save-btn');
 const photoCheckSaveDialog = document.getElementById('photo-check-save-dialog');
 const photoCheckSaveForm = document.getElementById('photo-check-save-form');
@@ -336,6 +356,28 @@ photoCheckSaveForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     await saveSelectedPhotoCheckProblems();
 });
+
+photoCheckHistoryRefreshBtn?.addEventListener('click', async (event) => {
+    event.preventDefault();
+    await loadPhotoCheckHistory({ force: true });
+});
+
+photoCheckHistoryList?.addEventListener('click', async (event) => {
+    const button = event.target.closest('.photo-check-history__entry');
+    if (!button) {
+        return;
+    }
+
+    const id = button.dataset.photoCheckHistoryId;
+    if (!id) {
+        return;
+    }
+
+    event.preventDefault();
+    await loadPhotoCheckHistoryRecord(id);
+});
+
+renderPhotoCheckHistory();
 
 openWizardPanelLink?.addEventListener('click', (event) => {
     event.preventDefault();
@@ -1786,6 +1828,7 @@ function showPhotoCheckPanel() {
     openPhotoCheckPanelLink?.setAttribute('aria-expanded', 'true');
     photoCheckPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     photoCheckImageInput?.focus();
+    loadPhotoCheckHistory({ lazy: true });
 }
 
 function hidePhotoCheckPanel(options = {}) {
@@ -1891,6 +1934,15 @@ function renderPhotoCheckResults(result) {
     photoCheckSummary.textContent = summaryText;
     photoCheckResultsSection.hidden = false;
 
+    const historyMetadata = buildPhotoCheckHistoryMetadata(result, batches, overall);
+    if (historyMetadata) {
+        const normalizedHistory = upsertPhotoCheckHistoryItem(historyMetadata);
+        state.photoCheck.history.selectedId = normalizedHistory?.id || historyMetadata.id;
+    } else if (state.photoCheck.recordId) {
+        state.photoCheck.history.selectedId = state.photoCheck.recordId;
+    }
+
+    renderPhotoCheckHistory();
     syncPhotoCheckSelectionToDom();
     updatePhotoCheckSelectionUI();
 }
@@ -1999,6 +2051,411 @@ function updatePhotoCheckSelectionUI() {
     if (photoCheckSaveConfirm) {
         photoCheckSaveConfirm.disabled = state.photoCheck.isSaving || selectedCount === 0;
     }
+}
+
+function renderPhotoCheckHistory() {
+    if (!photoCheckHistoryList || !photoCheckHistoryStatus) {
+        return;
+    }
+
+    const historyState = state.photoCheck.history || {};
+    const items = Array.isArray(historyState.items) ? historyState.items : [];
+
+    photoCheckHistoryStatus.textContent = '';
+    photoCheckHistoryStatus.classList.remove('is-error', 'is-success');
+
+    if (photoCheckHistoryRefreshBtn) {
+        photoCheckHistoryRefreshBtn.disabled = Boolean(historyState.isLoading);
+        photoCheckHistoryRefreshBtn.classList.toggle('is-busy', Boolean(historyState.isLoading));
+    }
+
+    if (historyState.isLoading) {
+        photoCheckHistoryStatus.textContent = '正在加载历史记录…';
+    } else if (historyState.error) {
+        photoCheckHistoryStatus.textContent = historyState.error;
+        photoCheckHistoryStatus.classList.add('is-error');
+    } else if (historyState.message) {
+        photoCheckHistoryStatus.textContent = historyState.message;
+        if (historyState.messageVariant === 'error') {
+            photoCheckHistoryStatus.classList.add('is-error');
+        } else if (historyState.messageVariant === 'success') {
+            photoCheckHistoryStatus.classList.add('is-success');
+        }
+    } else if (items.length > 0) {
+        photoCheckHistoryStatus.textContent = '点击记录可重新查看当时的检查结果。';
+    } else if (historyState.lastLoadedAt) {
+        photoCheckHistoryStatus.textContent = '暂无拍照检查记录。';
+    } else {
+        photoCheckHistoryStatus.textContent = '尚未加载历史记录。';
+    }
+
+    photoCheckHistoryList.innerHTML = '';
+
+    if (!items.length) {
+        return;
+    }
+
+    items.forEach((item) => {
+        const li = document.createElement('li');
+        li.className = 'photo-check-history__item';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'photo-check-history__entry';
+        button.dataset.photoCheckHistoryId = item.id;
+
+        const tooltipTime = formatDateTimeWithMinutes(item.createdAt);
+        if (tooltipTime) {
+            button.title = `拍照检查时间：${tooltipTime}`;
+        } else {
+            button.title = `拍照检查记录 ${item.id}`;
+        }
+
+        if (historyState.selectedId && historyState.selectedId === item.id) {
+            button.classList.add('is-active');
+        }
+
+        if (historyState.loadingRecordId && historyState.loadingRecordId === item.id) {
+            button.disabled = true;
+        }
+
+        const title = document.createElement('span');
+        title.className = 'photo-check-history__entry-title';
+        title.textContent = formatPhotoCheckHistoryTitle(item);
+        button.appendChild(title);
+
+        const meta = document.createElement('div');
+        meta.className = 'photo-check-history__entry-meta';
+
+        const badges = computePhotoCheckHistoryBadges(item);
+        badges.forEach((text) => {
+            const badge = document.createElement('span');
+            badge.className = 'photo-check-history__badge';
+            badge.textContent = text;
+            meta.appendChild(badge);
+        });
+
+        if (historyState.loadingRecordId && historyState.loadingRecordId === item.id) {
+            const loadingBadge = document.createElement('span');
+            loadingBadge.className = 'photo-check-history__badge';
+            loadingBadge.textContent = '加载中…';
+            meta.appendChild(loadingBadge);
+        }
+
+        if (meta.childElementCount > 0) {
+            button.appendChild(meta);
+        }
+
+        const extra = document.createElement('span');
+        extra.className = 'photo-check-history__extra';
+        extra.textContent = `记录编号：${item.id}`;
+        button.appendChild(extra);
+
+        li.appendChild(button);
+        photoCheckHistoryList.appendChild(li);
+    });
+}
+
+async function loadPhotoCheckHistory(options = {}) {
+    const historyState = state.photoCheck.history;
+    if (!historyState) {
+        return;
+    }
+
+    const { force = false, lazy = false } = options;
+
+    if (historyState.isLoading) {
+        return;
+    }
+
+    if (!force && lazy && historyState.items.length > 0 && !historyState.error) {
+        return;
+    }
+
+    historyState.isLoading = true;
+    historyState.error = '';
+    historyState.message = '';
+    historyState.messageVariant = '';
+    renderPhotoCheckHistory();
+
+    try {
+        const response = await fetch('/api/photo-check/history', { cache: 'no-store' });
+        const payload = await response.json().catch(() => []);
+
+        if (!response.ok) {
+            const message = payload?.error || '无法加载拍照检查历史记录。';
+            throw new Error(message);
+        }
+
+        const items = Array.isArray(payload)
+            ? payload.map(normalizePhotoCheckHistoryItem).filter(Boolean)
+            : [];
+
+        historyState.items = items;
+        historyState.lastLoadedAt = Date.now();
+        historyState.error = '';
+        if (force) {
+            historyState.message = items.length > 0 ? '历史记录已更新。' : '暂无拍照检查记录。';
+            historyState.messageVariant = items.length > 0 ? 'success' : '';
+        }
+
+        if (historyState.selectedId) {
+            const exists = items.some((item) => item.id === historyState.selectedId);
+            if (!exists) {
+                historyState.selectedId = null;
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load photo check history', error);
+        historyState.error = error?.message || '无法加载拍照检查历史记录。';
+    } finally {
+        historyState.isLoading = false;
+        renderPhotoCheckHistory();
+    }
+}
+
+async function loadPhotoCheckHistoryRecord(id) {
+    const normalizedId = typeof id === 'string' ? id.trim() : '';
+    if (!normalizedId) {
+        return;
+    }
+
+    const historyState = state.photoCheck.history;
+    if (!historyState || historyState.loadingRecordId === normalizedId) {
+        return;
+    }
+
+    historyState.loadingRecordId = normalizedId;
+    historyState.message = '';
+    historyState.messageVariant = '';
+    renderPhotoCheckHistory();
+    setPhotoCheckStatus('正在加载拍照检查记录…');
+
+    try {
+        const response = await fetch(`/api/photo-check/records/${encodeURIComponent(normalizedId)}`, {
+            cache: 'no-store'
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            const message = payload?.error || '无法读取拍照检查记录。';
+            throw new Error(message);
+        }
+
+        const record = payload && typeof payload === 'object' ? payload : {};
+        const recordPayload = {
+            ...record,
+            recordId:
+                typeof record.recordId === 'string' && record.recordId.trim()
+                    ? record.recordId.trim()
+                    : normalizedId,
+            createdAt: typeof record.createdAt === 'string' ? record.createdAt : record.timestamp || null
+        };
+
+        renderPhotoCheckResults(recordPayload);
+        setPhotoCheckStatus('已加载历史记录。', 'success');
+    } catch (error) {
+        console.error('Failed to load photo check record', error);
+        setPhotoCheckStatus(error?.message || '无法读取拍照检查记录。', 'error');
+    } finally {
+        historyState.loadingRecordId = null;
+        renderPhotoCheckHistory();
+    }
+}
+
+function buildPhotoCheckHistoryMetadata(result, batches, overall) {
+    if (!result) {
+        return null;
+    }
+
+    const candidates = [result.recordId, result.id];
+    let id = '';
+    for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) {
+            id = candidate.trim();
+            break;
+        }
+    }
+
+    if (!id) {
+        return null;
+    }
+
+    const summary = normalizePhotoCheckSummary(result.overall || overall || {});
+
+    let totalImages = toFiniteNumber(result.totalImages);
+    if (!Number.isFinite(totalImages) && Array.isArray(result.results)) {
+        totalImages = result.results.length;
+    }
+    if (!Number.isFinite(totalImages) && Array.isArray(batches)) {
+        totalImages = batches.length;
+    }
+    totalImages = Number.isFinite(totalImages) ? Math.max(0, Math.round(totalImages)) : 0;
+
+    let problems = 0;
+    if (Array.isArray(result.problems)) {
+        problems = result.problems.length;
+    } else {
+        const numericProblems = toFiniteNumber(result.problems);
+        problems = Number.isFinite(numericProblems) ? Math.max(0, Math.round(numericProblems)) : summary.total;
+    }
+
+    const createdAt = typeof result.createdAt === 'string' ? result.createdAt : null;
+
+    return {
+        id,
+        createdAt,
+        totalImages,
+        problems,
+        overall: summary
+    };
+}
+
+function normalizePhotoCheckHistoryItem(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const candidates = [raw.id, raw.recordId];
+    let id = '';
+    for (const candidate of candidates) {
+        if (typeof candidate === 'string' && candidate.trim()) {
+            id = candidate.trim();
+            break;
+        }
+    }
+
+    if (!id) {
+        return null;
+    }
+
+    const summary = normalizePhotoCheckSummary(raw.overall || {});
+
+    let totalImages = toFiniteNumber(raw.totalImages);
+    totalImages = Number.isFinite(totalImages) ? Math.max(0, Math.round(totalImages)) : 0;
+
+    let problems = 0;
+    if (Array.isArray(raw.problems)) {
+        problems = raw.problems.length;
+    } else {
+        const numericProblems = toFiniteNumber(raw.problems);
+        problems = Number.isFinite(numericProblems) ? Math.max(0, Math.round(numericProblems)) : summary.total;
+    }
+
+    return {
+        id,
+        createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : null,
+        totalImages,
+        problems,
+        overall: summary
+    };
+}
+
+function upsertPhotoCheckHistoryItem(raw) {
+    const historyState = state.photoCheck.history;
+    if (!historyState) {
+        return null;
+    }
+
+    const normalized = normalizePhotoCheckHistoryItem(raw);
+    if (!normalized) {
+        return null;
+    }
+
+    const items = Array.isArray(historyState.items) ? [...historyState.items] : [];
+    const existingIndex = items.findIndex((item) => item.id === normalized.id);
+
+    if (existingIndex >= 0) {
+        items[existingIndex] = { ...items[existingIndex], ...normalized };
+    } else {
+        items.unshift(normalized);
+    }
+
+    items.sort((a, b) => {
+        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bTime - aTime;
+    });
+
+    const seen = new Set();
+    const unique = [];
+    items.forEach((item) => {
+        if (seen.has(item.id)) {
+            return;
+        }
+        seen.add(item.id);
+        unique.push(item);
+    });
+
+    historyState.items = unique;
+    historyState.message = '';
+    historyState.messageVariant = '';
+
+    return normalized;
+}
+
+function computePhotoCheckHistoryBadges(item) {
+    const badges = [];
+    if (!item) {
+        return badges;
+    }
+
+    const images = toFiniteNumber(item.totalImages);
+    if (Number.isFinite(images) && images > 0) {
+        badges.push(`照片 ${Math.max(1, Math.round(images))} 张`);
+    }
+
+    const summary = normalizePhotoCheckSummary(item.overall || {});
+    if (summary.total > 0) {
+        badges.push(`识别 ${summary.total} 题`);
+    }
+    if (summary.incorrect > 0) {
+        badges.push(`需复查 ${summary.incorrect} 题`);
+    }
+    if (summary.unknown > 0) {
+        badges.push(`待确认 ${summary.unknown} 题`);
+    }
+
+    return badges;
+}
+
+function formatPhotoCheckHistoryTitle(item) {
+    if (!item) {
+        return '';
+    }
+
+    const dateText = formatDateTimeWithMinutes(item.createdAt);
+    const relative = formatRelativeTimeSafe(item.createdAt);
+
+    if (dateText && relative) {
+        return `${dateText} · ${relative}`;
+    }
+    if (dateText) {
+        return dateText;
+    }
+    return `记录 ${item.id}`;
+}
+
+function formatDateTimeWithMinutes(iso) {
+    if (!iso) {
+        return '';
+    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+    return dateTimeFormatter.format(date);
+}
+
+function formatRelativeTimeSafe(iso) {
+    if (!iso) {
+        return '';
+    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+    return formatRelativeTime(date.toISOString());
 }
 
 function openPhotoCheckSaveDialog() {
@@ -3331,6 +3788,8 @@ function resetPhotoCheckResults() {
     state.photoCheck.recordId = null;
     state.photoCheck.createdAt = null;
     state.photoCheck.isSaving = false;
+    state.photoCheck.history.selectedId = null;
+    renderPhotoCheckHistory();
     updatePhotoCheckSelectionUI();
 }
 

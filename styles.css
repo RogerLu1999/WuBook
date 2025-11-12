@@ -188,6 +188,131 @@ body {
     color: var(--text-muted);
 }
 
+.photo-check-status.is-error {
+    color: var(--danger);
+}
+
+.photo-check-status.is-success {
+    color: var(--success);
+}
+
+.photo-check-history {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-radius: 16px;
+    background: rgba(226, 232, 240, 0.35);
+}
+
+.photo-check-history__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.photo-check-history__header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.photo-check-history__status {
+    margin: 0;
+    min-height: 1.25rem;
+    font-size: 0.95rem;
+    color: var(--text-muted);
+}
+
+.photo-check-history__status.is-error {
+    color: var(--danger);
+}
+
+.photo-check-history__status.is-success {
+    color: var(--success);
+}
+
+.photo-check-history__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.photo-check-history__item {
+    margin: 0;
+}
+
+.photo-check-history__entry {
+    width: 100%;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 0.75rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.photo-check-history__entry:hover,
+.photo-check-history__entry:focus-visible {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+    outline: none;
+}
+
+.photo-check-history__entry.is-active {
+    border-color: var(--accent);
+    background: rgba(79, 70, 229, 0.08);
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+}
+
+.photo-check-history__entry[disabled] {
+    cursor: progress;
+    opacity: 0.7;
+    box-shadow: none;
+}
+
+.photo-check-history__entry-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-weight: 600;
+}
+
+.photo-check-history__entry-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.photo-check-history__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(79, 70, 229, 0.1);
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.photo-check-history__extra {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
 .photo-check-progress {
     display: flex;
     flex-direction: column;
@@ -274,14 +399,6 @@ body {
         transform: scale(1);
         box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
     }
-}
-
-.photo-check-status.is-error {
-    color: var(--danger);
-}
-
-.photo-check-status.is-success {
-    color: var(--success);
 }
 
 .photo-check-results {
