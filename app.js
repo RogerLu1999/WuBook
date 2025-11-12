@@ -1800,7 +1800,7 @@ function renderPhotoCheckResults(result) {
 
     updatePhotoCheckPreview();
 
-    const { rows, attemptOrder } = buildPhotoCheckProblemRows(attempts);
+    const { rows, attemptOrder, attemptMetadata } = buildPhotoCheckProblemRows(attempts);
 
     photoCheckReport.innerHTML = '';
 
@@ -1811,7 +1811,7 @@ function renderPhotoCheckResults(result) {
         photoCheckReport.appendChild(empty);
     } else {
         rows.forEach((row) => {
-            photoCheckReport.appendChild(createPhotoCheckProblemRow(row, attemptOrder));
+            photoCheckReport.appendChild(createPhotoCheckProblemRow(row, attemptOrder, attemptMetadata));
         });
     }
 
@@ -1823,6 +1823,7 @@ function buildPhotoCheckProblemRows(attempts) {
     const attemptList = Array.isArray(attempts) ? attempts : [];
     const attemptOrder = buildPhotoCheckAttemptOrder(attemptList);
     const attemptLookup = new Map();
+    const attemptMetadata = new Map();
 
     attemptList.forEach((attempt) => {
         const indexValue = toFiniteNumber(attempt?.index);
@@ -1832,6 +1833,14 @@ function buildPhotoCheckProblemRows(attempts) {
         const normalizedIndex = Math.max(1, Math.floor(indexValue));
         if (!attemptLookup.has(normalizedIndex)) {
             attemptLookup.set(normalizedIndex, attempt);
+        }
+        if (!attemptMetadata.has(normalizedIndex)) {
+            const provider = normalizePhotoCheckProviderName(attempt?.provider);
+            const label = typeof attempt?.label === 'string' ? attempt.label.trim() : null;
+            attemptMetadata.set(normalizedIndex, {
+                provider,
+                label: label || null
+            });
         }
     });
 
@@ -1876,7 +1885,7 @@ function buildPhotoCheckProblemRows(attempts) {
         return a.index - b.index;
     });
 
-    return { rows, attemptOrder };
+    return { rows, attemptOrder, attemptMetadata };
 }
 
 function buildPhotoCheckAttemptOrder(attempts) {
@@ -1911,7 +1920,7 @@ function resolvePhotoCheckProblemIndex(problem, fallbackIndex) {
     return Math.max(1, Math.floor(fallbackIndex || 1));
 }
 
-function createPhotoCheckProblemRow(row, attemptOrder) {
+function createPhotoCheckProblemRow(row, attemptOrder, attemptMetadata) {
     const item = document.createElement('article');
     item.className = 'photo-check-report__item photo-check-report__item--grid';
     item.dataset.problemIndex = String(row.index);
@@ -1935,38 +1944,48 @@ function createPhotoCheckProblemRow(row, attemptOrder) {
     grid.className = 'photo-check-problem__grid';
     item.appendChild(grid);
 
-    grid.appendChild(createPhotoCheckImageColumn(row, normalizedOrder));
+    grid.appendChild(createPhotoCheckImageColumn(row, normalizedOrder, attemptMetadata));
 
     const solutionAttempts = normalizedOrder.filter((attemptIndex) => attemptIndex !== 1);
     const firstSolutionIndex = solutionAttempts[0] ?? null;
     const secondSolutionIndex = solutionAttempts[1] ?? null;
 
     grid.appendChild(
-        createPhotoCheckAttemptColumn(row.attempts.get(firstSolutionIndex) || null, firstSolutionIndex, {
-            position: 1
-        })
+        createPhotoCheckAttemptColumn(
+            row.attempts.get(firstSolutionIndex) || null,
+            firstSolutionIndex,
+            attemptMetadata,
+            {
+                position: 1
+            }
+        )
     );
 
     grid.appendChild(
-        createPhotoCheckAttemptColumn(row.attempts.get(secondSolutionIndex) || null, secondSolutionIndex, {
-            position: 2
-        })
+        createPhotoCheckAttemptColumn(
+            row.attempts.get(secondSolutionIndex) || null,
+            secondSolutionIndex,
+            attemptMetadata,
+            {
+                position: 2
+            }
+        )
     );
 
     return item;
 }
 
-function createPhotoCheckImageColumn(row, attemptOrder) {
+function createPhotoCheckImageColumn(row, attemptOrder, attemptMetadata) {
     const column = document.createElement('div');
     column.className = 'photo-check-problem__column photo-check-problem__column--image';
     column.dataset.role = 'image';
 
     const heading = document.createElement('h4');
     heading.className = 'photo-check-report__attempt-title';
-    heading.textContent = '题目截图（第 1 次调用）';
-    column.appendChild(heading);
-
     const imageSource = findPhotoCheckProblemImage(row, attemptOrder);
+    const labelIndex = imageSource?.attemptIndex ?? (Array.isArray(attemptOrder) ? attemptOrder[0] : null);
+    heading.textContent = `题目截图${buildPhotoCheckAttemptLabel(labelIndex, attemptMetadata)}`;
+    column.appendChild(heading);
 
     if (imageSource) {
         const figure = document.createElement('figure');
@@ -2005,7 +2024,8 @@ function findPhotoCheckProblemImage(row, attemptOrder) {
     if (primaryImage && typeof primaryImage.url === 'string' && primaryImage.url.trim()) {
         return {
             url: primaryImage.url,
-            caption: primaryImage.source === 'crop' ? '自动截取的小题区域' : null
+            caption: primaryImage.source === 'crop' ? '自动截取的小题区域' : null,
+            attemptIndex: 1
         };
     }
 
@@ -2018,7 +2038,8 @@ function findPhotoCheckProblemImage(row, attemptOrder) {
         if (image && typeof image.url === 'string' && image.url.trim()) {
             return {
                 url: image.url,
-                caption: image.source === 'crop' ? '自动截取的小题区域' : null
+                caption: image.source === 'crop' ? '自动截取的小题区域' : null,
+                attemptIndex
             };
         }
     }
@@ -2026,7 +2047,7 @@ function findPhotoCheckProblemImage(row, attemptOrder) {
     return null;
 }
 
-function createPhotoCheckAttemptColumn(problem, attemptIndex, options = {}) {
+function createPhotoCheckAttemptColumn(problem, attemptIndex, attemptMetadata, options = {}) {
     const column = document.createElement('div');
     column.className = 'photo-check-problem__column photo-check-problem__column--attempt';
     if (attemptIndex != null) {
@@ -2038,18 +2059,18 @@ function createPhotoCheckAttemptColumn(problem, attemptIndex, options = {}) {
     const position = Number(options.position);
     if (position === 1) {
         if (Number.isFinite(Number(attemptIndex)) && attemptIndex > 0) {
-            heading.textContent = `第一次解题（第 ${attemptIndex} 次调用）`;
+            heading.textContent = `第一次解题${buildPhotoCheckAttemptLabel(attemptIndex, attemptMetadata)}`;
         } else {
             heading.textContent = '第一次解题';
         }
     } else if (position === 2) {
         if (Number.isFinite(Number(attemptIndex)) && attemptIndex > 0) {
-            heading.textContent = `第二次解题（第 ${attemptIndex} 次调用）`;
+            heading.textContent = `第二次解题${buildPhotoCheckAttemptLabel(attemptIndex, attemptMetadata)}`;
         } else {
             heading.textContent = '第二次解题';
         }
     } else if (Number.isFinite(Number(attemptIndex)) && attemptIndex > 0) {
-        heading.textContent = `第 ${attemptIndex} 次调用`;
+        heading.textContent = `解题结果${buildPhotoCheckAttemptLabel(attemptIndex, attemptMetadata)}`;
     } else {
         heading.textContent = '解题结果';
     }
@@ -2145,6 +2166,10 @@ function normalizePhotoCheckAttempt(attempt, index) {
 
     const attemptIndexValue = Number(attempt.attempt ?? attempt.index);
     const attemptIndex = Number.isFinite(attemptIndexValue) && attemptIndexValue > 0 ? attemptIndexValue : index + 1;
+    const provider = normalizePhotoCheckProviderName(
+        attempt.provider ?? attempt.model ?? attempt.source ?? attempt.engine ?? attempt.name
+    );
+    const label = typeof attempt.label === 'string' ? attempt.label.trim() : null;
 
     const problemsInput = Array.isArray(attempt.problems) ? attempt.problems : [];
     const normalizedProblems = problemsInput
@@ -2188,6 +2213,8 @@ function normalizePhotoCheckAttempt(attempt, index) {
 
     return {
         index: attemptIndex,
+        provider,
+        label: label || null,
         summary: {
             total,
             correct,
@@ -2196,6 +2223,39 @@ function normalizePhotoCheckAttempt(attempt, index) {
         },
         problems: normalizedProblems
     };
+}
+
+function normalizePhotoCheckProviderName(provider) {
+    if (provider == null) {
+        return null;
+    }
+    const text = String(provider).trim();
+    if (!text) {
+        return null;
+    }
+    return text.toLowerCase();
+}
+
+function buildPhotoCheckAttemptLabel(attemptIndex, attemptMetadata) {
+    const numericIndex = Number(attemptIndex);
+    if (!Number.isFinite(numericIndex) || numericIndex <= 0) {
+        return '';
+    }
+
+    const normalizedIndex = Math.max(1, Math.floor(numericIndex));
+    const metadata = attemptMetadata instanceof Map ? attemptMetadata.get(normalizedIndex) : null;
+    const provider = metadata?.provider;
+    const label = metadata?.label;
+
+    if (provider) {
+        return `（${provider}）`;
+    }
+
+    if (label) {
+        return `（${label}）`;
+    }
+
+    return `（第 ${normalizedIndex} 次调用）`;
 }
 
 function normalizePhotoCheckCount(value) {
@@ -2212,7 +2272,7 @@ function normalizePhotoCheckCount(value) {
 function formatPhotoCheckAttemptSummary(attempt, { withPrefix = false } = {}) {
     if (!attempt || !attempt.summary) {
         if (withPrefix) {
-            const label = Number.isFinite(Number(attempt?.index)) ? `第 ${attempt.index} 次调用` : '本次调用';
+            const label = getPhotoCheckAttemptPrefix(attempt);
             return `${label}未能识别出题目`;
         }
         return '未能识别出题目';
@@ -2230,20 +2290,20 @@ function formatPhotoCheckAttemptSummary(attempt, { withPrefix = false } = {}) {
         }
 
         if (withPrefix) {
-            return `第 ${attempt.index} 次调用：${parts.join('，')}`;
+            return `${getPhotoCheckAttemptPrefix(attempt)}：${parts.join('，')}`;
         }
         return parts.join('，');
     }
 
     if (withPrefix) {
-        return `第 ${attempt.index} 次调用未能识别出题目`;
+        return `${getPhotoCheckAttemptPrefix(attempt)}未能识别出题目`;
     }
     return '未能识别出题目';
 }
 
 function buildPhotoCheckOverallSummary(attempts) {
     if (!Array.isArray(attempts) || attempts.length === 0) {
-        return '未能从照片中识别出题目。本次检查共调用 3 次 AI：第 1 次读取照片并截取题目，第 2 次和第 3 次分别负责解题核对。';
+        return '未能从照片中识别出题目。本次检查通常会调用 3 次 AI（qwen 识别题目、qwen 复核答案、kimi 复核答案）。';
     }
 
     const includePrefix = attempts.length > 1;
@@ -2252,11 +2312,53 @@ function buildPhotoCheckOverallSummary(attempts) {
         .filter((text) => Boolean(text && text.trim()));
 
     if (parts.length === 0) {
-        return '未能从照片中识别出题目。本次检查共调用 3 次 AI：第 1 次读取照片并截取题目，第 2 次和第 3 次分别负责解题核对。';
+        return '未能从照片中识别出题目。本次检查通常会调用 3 次 AI（qwen 识别题目、qwen 复核答案、kimi 复核答案）。';
     }
 
-    const workflowSummary = '本次检查共调用 3 次 AI：第 1 次读取照片并截取题目，第 2 次和第 3 次分别负责解题核对。';
+    const workflowSummary = buildPhotoCheckWorkflowSummary(attempts);
     return `${parts.join('；')}。${workflowSummary}`;
+}
+
+function getPhotoCheckAttemptPrefix(attempt) {
+    if (!attempt) {
+        return '本次调用';
+    }
+
+    if (typeof attempt.provider === 'string' && attempt.provider.trim()) {
+        return attempt.provider.trim();
+    }
+
+    if (typeof attempt.label === 'string' && attempt.label.trim()) {
+        return attempt.label.trim();
+    }
+
+    if (Number.isFinite(Number(attempt.index)) && Number(attempt.index) > 0) {
+        return `第 ${Number(attempt.index)} 次调用`;
+    }
+
+    return '本次调用';
+}
+
+function buildPhotoCheckWorkflowSummary(attempts) {
+    const attemptList = Array.isArray(attempts) ? attempts : [];
+    if (attemptList.length === 0) {
+        return '本次检查未能完成 AI 调用。';
+    }
+
+    const providerLabels = attemptList.map((attempt, index) => {
+        if (typeof attempt.provider === 'string' && attempt.provider.trim()) {
+            return attempt.provider.trim();
+        }
+        if (typeof attempt.label === 'string' && attempt.label.trim()) {
+            return attempt.label.trim();
+        }
+        if (Number.isFinite(Number(attempt.index)) && Number(attempt.index) > 0) {
+            return `第 ${Number(attempt.index)} 次调用`;
+        }
+        return `第 ${index + 1} 次调用`;
+    });
+
+    return `本次检查共调用 ${attemptList.length} 次 AI：${providerLabels.join('、')}。`;
 }
 
 function appendPhotoCheckSection(container, label, value) {

@@ -281,7 +281,10 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
         const photoInfo = await savePhotoCheckOriginalImage(preparedImage);
 
         const visionAnalysis = await analyzePhotoWithQwen(preparedImage);
-        const visionAttempt = normalizePhotoCheckAnalysis(visionAnalysis);
+        const visionAttempt = {
+            ...normalizePhotoCheckAnalysis(visionAnalysis),
+            provider: 'qwen'
+        };
 
         await attachPhotoCheckProblemImages([visionAttempt], {
             buffer: preparedImage,
@@ -318,7 +321,8 @@ app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
                         ? Number(attempt.index)
                         : index + 1,
                 summary: attempt.summary,
-                problems: attempt.problems
+                problems: attempt.problems,
+                provider: attempt.provider || null
             }))
         });
     } catch (error) {
@@ -848,7 +852,7 @@ async function reviewPhotoCheckProblemsWithMultipleModels(problems) {
     try {
         const attempt = await reviewPhotoCheckProblemsWithQwen(clonePhotoCheckProblems(problems));
         if (attempt) {
-            attempts.push(attempt);
+            attempts.push({ ...attempt, provider: attempt.provider || 'qwen' });
         }
     } catch (error) {
         console.warn('Failed to review problems with Qwen', error);
@@ -857,7 +861,7 @@ async function reviewPhotoCheckProblemsWithMultipleModels(problems) {
     try {
         const attempt = await reviewPhotoCheckProblemsWithKimi(clonePhotoCheckProblems(problems));
         if (attempt) {
-            attempts.push(attempt);
+            attempts.push({ ...attempt, provider: attempt.provider || 'kimi' });
         }
     } catch (error) {
         console.warn('Failed to review problems with Kimi', error);
@@ -868,7 +872,7 @@ async function reviewPhotoCheckProblemsWithMultipleModels(problems) {
 
 async function reviewPhotoCheckProblemsWithQwen(problems) {
     if (!Array.isArray(problems) || problems.length === 0) {
-        return createEmptyPhotoCheckAttempt();
+        return createEmptyPhotoCheckAttempt('qwen');
     }
 
     const apiKey = process.env.DASHSCOPE_API_KEY;
@@ -942,7 +946,7 @@ async function reviewPhotoCheckProblemsWithQwen(problems) {
 
 async function reviewPhotoCheckProblemsWithKimi(problems) {
     if (!Array.isArray(problems) || problems.length === 0) {
-        return createEmptyPhotoCheckAttempt();
+        return createEmptyPhotoCheckAttempt('kimi');
     }
 
     const apiKey = process.env.MOONSHOT_API_KEY;
@@ -1326,8 +1330,9 @@ function normalizePhotoCheckAnalysis(raw) {
     };
 }
 
-function createEmptyPhotoCheckAttempt() {
+function createEmptyPhotoCheckAttempt(provider) {
     return {
+        provider: provider || null,
         problems: [],
         summary: {
             total: 0,
