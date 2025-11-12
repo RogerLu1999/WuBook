@@ -318,6 +318,35 @@ body {
     list-style: none;
 }
 
+.photo-check-report__group {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.photo-check-report__group-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.photo-check-report__group-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-strong);
+}
+
+.photo-check-report__group-summary {
+    margin: 0;
+    color: var(--text-muted);
+}
+
 .photo-check-report__attempt-empty {
     margin: 0;
     color: var(--text-muted);
