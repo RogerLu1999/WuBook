@@ -412,6 +412,71 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
     }
 });
 
+app.get('/api/photo-check/history', async (req, res) => {
+    try {
+        await ensureDirectories();
+
+        let history = [];
+        try {
+            const raw = await fsp.readFile(PHOTO_CHECK_HISTORY_FILE, 'utf8');
+            if (raw.trim()) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    history = parsed;
+                }
+            }
+        } catch (error) {
+            if (error.code !== 'ENOENT') {
+                throw error;
+            }
+        }
+
+        await logAction('photo-check-history', 'success', { total: history.length });
+        res.json(history);
+    } catch (error) {
+        console.error('Failed to read photo check history', error);
+        await logAction('photo-check-history', 'error', { message: error.message });
+        res.status(500).json({ error: '无法读取拍照检查历史记录。' });
+    }
+});
+
+app.get('/api/photo-check/records/:id', async (req, res) => {
+    const rawId = typeof req.params.id === 'string' ? req.params.id.trim() : '';
+    if (!rawId) {
+        return res.status(400).json({ error: '缺少记录编号。' });
+    }
+
+    if (!/^[a-zA-Z0-9-]+$/.test(rawId)) {
+        return res.status(400).json({ error: '记录编号格式不正确。' });
+    }
+
+    const filePath = path.join(PHOTO_CHECK_RECORDS_DIR, `${rawId}.json`);
+
+    try {
+        await ensureDirectories();
+        const raw = await fsp.readFile(filePath, 'utf8');
+        let record = {};
+        if (raw.trim()) {
+            record = JSON.parse(raw);
+        }
+
+        await logAction('photo-check-record-read', 'success', { id: rawId });
+        res.json(record);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            await logAction('photo-check-record-read', 'error', { id: rawId, code: 'ENOENT' });
+            return res.status(404).json({ error: '未找到对应的拍照检查记录。' });
+        }
+
+        console.error('Failed to read photo check record', error);
+        await logAction('photo-check-record-read', 'error', { id: rawId, message: error.message });
+        if (error.name === 'SyntaxError') {
+            return res.status(500).json({ error: '拍照检查记录文件已损坏，无法读取。' });
+        }
+        res.status(500).json({ error: '无法读取拍照检查记录。' });
+    }
+});
+
 async function recognizeTextWithQwen(buffer) {
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) {

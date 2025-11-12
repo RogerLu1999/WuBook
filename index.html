@@ -238,6 +238,17 @@
 
             <p id="photo-check-status" class="photo-check-status" role="status" aria-live="polite"></p>
 
+            <section id="photo-check-history" class="photo-check-history" aria-labelledby="photo-check-history-title">
+                <div class="photo-check-history__header">
+                    <h3 id="photo-check-history-title">历史记录</h3>
+                    <button type="button" id="photo-check-history-refresh" class="btn btn-secondary btn-compact">
+                        刷新
+                    </button>
+                </div>
+                <p id="photo-check-history-status" class="photo-check-history__status" role="status" aria-live="polite"></p>
+                <ul id="photo-check-history-list" class="photo-check-history__list"></ul>
+            </section>
+
             <section id="photo-check-results" class="photo-check-results" hidden>
                 <h3>检查报告</h3>
                 <p id="photo-check-summary" class="photo-check-summary"></p>
