@@ -195,6 +195,10 @@ const ocrUpload = multer({
         fileSize: 10 * 1024 * 1024
     }
 });
+const photoCheckUpload = ocrUpload.fields([
+    { name: 'image', maxCount: 1 },
+    { name: 'images', maxCount: 10 }
+]);
 
 app.use(express.json({ limit: '10mb' }));
 app.use('/data', (req, res) => res.sendStatus(404));
@@ -271,64 +275,122 @@ app.post('/api/ocr', ocrUpload.single('image'), async (req, res) => {
     }
 });
 
-app.post('/api/photo-check', ocrUpload.single('image'), async (req, res) => {
-    if (!req.file) {
+app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
+    const files = [];
+
+    if (req.files && typeof req.files === 'object') {
+        const { images, image } = req.files;
+        if (Array.isArray(images)) {
+            files.push(...images);
+        }
+        if (Array.isArray(image)) {
+            files.push(...image);
+        }
+    }
+
+    if (req.file && !files.includes(req.file)) {
+        files.push(req.file);
+    }
+
+    if (files.length === 0) {
         return res.status(400).json({ error: '缺少需要分析的照片。' });
     }
 
     try {
-        const preparedImage = await preparePhotoCheckImage(req.file.buffer);
-        const photoInfo = await savePhotoCheckOriginalImage(preparedImage);
+        const results = [];
+        const overall = { total: 0, correct: 0, incorrect: 0, unknown: 0 };
 
-        const visionAnalysis = await analyzePhotoWithQwen(preparedImage);
-        const visionAttempt = {
-            ...normalizePhotoCheckAnalysis(visionAnalysis),
-            provider: 'qwen'
-        };
+        for (let index = 0; index < files.length; index += 1) {
+            const file = files[index];
 
-        await attachPhotoCheckProblemImages([visionAttempt], {
-            buffer: preparedImage,
-            metadata: photoInfo?.metadata || null,
-            baseName: photoInfo?.baseName || null
-        });
+            try {
+                const preparedImage = await preparePhotoCheckImage(file.buffer);
+                const photoInfo = await savePhotoCheckOriginalImage(preparedImage);
 
-        const baseProblems = clonePhotoCheckProblems(visionAttempt.problems);
-        const reviewAttempts = await reviewPhotoCheckProblemsWithMultipleModels(baseProblems);
-        const attempts = [visionAttempt, ...reviewAttempts].filter(Boolean);
-        const primaryAttempt = reviewAttempts[0] || visionAttempt || createEmptyPhotoCheckAttempt();
+                const visionAnalysis = await analyzePhotoWithQwen(preparedImage);
+                const visionAttempt = {
+                    ...normalizePhotoCheckAnalysis(visionAnalysis),
+                    provider: 'qwen'
+                };
 
-        await logAction('photo-check', 'success', {
-            provider: 'qwen+kimi',
-            total: primaryAttempt.summary.total,
-            correct: primaryAttempt.summary.correct,
-            incorrect: primaryAttempt.summary.incorrect,
-            unknown: primaryAttempt.summary.unknown
-        });
+                await attachPhotoCheckProblemImages([visionAttempt], {
+                    buffer: preparedImage,
+                    metadata: photoInfo?.metadata || null,
+                    baseName: photoInfo?.baseName || null
+                });
 
-        const previewMetadata = photoInfo?.metadata || {};
+                const baseProblems = clonePhotoCheckProblems(visionAttempt.problems);
+                const reviewAttempts = await reviewPhotoCheckProblemsWithMultipleModels(baseProblems);
+                const attempts = [visionAttempt, ...reviewAttempts].filter(Boolean);
+                const primaryAttempt = reviewAttempts[0] || visionAttempt || createEmptyPhotoCheckAttempt();
+                const summary = normalizePhotoCheckAttemptSummary(primaryAttempt.summary);
+                const primaryProblems = clonePhotoCheckProblems(primaryAttempt.problems);
+
+                await logAction('photo-check', 'success', {
+                    provider: 'qwen+kimi',
+                    total: summary.total,
+                    correct: summary.correct,
+                    incorrect: summary.incorrect,
+                    unknown: summary.unknown,
+                    index: index + 1,
+                    name: file.originalname || null
+                });
+
+                overall.total += summary.total;
+                overall.correct += summary.correct;
+                overall.incorrect += summary.incorrect;
+                overall.unknown += summary.unknown;
+
+                const previewMetadata = photoInfo?.metadata || {};
+
+                results.push({
+                    index: index + 1,
+                    name: typeof file.originalname === 'string' ? file.originalname : null,
+                    summary,
+                    problems: primaryProblems,
+                    image: {
+                        url: photoInfo?.url || null,
+                        width: previewMetadata.width || null,
+                        height: previewMetadata.height || null
+                    },
+                    attempts: attempts.map((attempt, attemptIndex) => ({
+                        attempt:
+                            Number.isFinite(Number(attempt?.index)) && Number(attempt.index) > 0
+                                ? Number(attempt.index)
+                                : attemptIndex + 1,
+                        summary: attempt.summary,
+                        problems: attempt.problems,
+                        provider: attempt.provider || null,
+                        label: attempt.label || null
+                    }))
+                });
+            } catch (error) {
+                const errorMessage = error?.message || '无法完成拍照检查。';
+                const displayName = typeof file?.originalname === 'string' ? file.originalname : `第 ${index + 1} 张照片`;
+                throw Object.assign(new Error(`${displayName}：${errorMessage}`), {
+                    cause: error,
+                    batchIndex: index + 1,
+                    batchName: file?.originalname || null
+                });
+            }
+        }
+
+        const flattenedProblems = results.flatMap((item) => (Array.isArray(item.problems) ? item.problems : []));
 
         res.json({
-            summary: primaryAttempt.summary,
-            problems: primaryAttempt.problems,
-            image: {
-                url: photoInfo?.url || null,
-                width: previewMetadata.width || null,
-                height: previewMetadata.height || null
-            },
-            attempts: attempts.map((attempt, index) => ({
-                attempt:
-                    Number.isFinite(Number(attempt?.index)) && Number(attempt.index) > 0
-                        ? Number(attempt.index)
-                        : index + 1,
-                summary: attempt.summary,
-                problems: attempt.problems,
-                provider: attempt.provider || null
-            }))
+            totalImages: results.length,
+            overall,
+            results,
+            problems: flattenedProblems
         });
     } catch (error) {
         console.error(error);
-        await logAction('photo-check', 'error', { message: error.message });
-        res.status(500).json({ error: error.message || '无法完成拍照检查。' });
+        await logAction('photo-check', 'error', {
+            message: error.message,
+            index: error.batchIndex || null,
+            name: error.batchName || null
+        });
+        res.status(500).json({ error: error.message || '无法完成拍照检查。', index: error.batchIndex || null });
     }
 });
 
@@ -1211,6 +1273,40 @@ function mergePhotoCheckTextReview(raw, baseProblems) {
             incorrect,
             unknown
         }
+    };
+}
+
+function normalizePhotoCheckAttemptSummary(summary) {
+    const toSafeCount = (value) => {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            return 0;
+        }
+        return Math.max(0, Math.round(number));
+    };
+
+    let total = toSafeCount(summary?.total);
+    let correct = toSafeCount(summary?.correct);
+    let incorrect = toSafeCount(summary?.incorrect);
+    let unknown = toSafeCount(summary?.unknown);
+
+    const providedUnknown = summary?.unknown;
+
+    total = Math.max(total, correct + incorrect + unknown);
+
+    const remaining = Math.max(0, total - correct - incorrect);
+
+    if (providedUnknown == null) {
+        unknown = remaining;
+    } else {
+        unknown = Math.min(unknown, remaining);
+    }
+
+    return {
+        total,
+        correct,
+        incorrect,
+        unknown
     };
 }
 

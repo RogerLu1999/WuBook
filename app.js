@@ -224,19 +224,25 @@ photoCheckImageInput?.addEventListener('change', () => {
 
 photoCheckForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!photoCheckImageInput || !photoCheckImageInput.files || photoCheckImageInput.files.length === 0) {
+    const files = Array.from(photoCheckImageInput?.files || []).filter(Boolean);
+    if (files.length === 0) {
         setPhotoCheckStatus('请先选择需要检查的照片。', 'error');
         return;
     }
 
-    const file = photoCheckImageInput.files[0];
     const formData = new FormData();
-    formData.append('image', file);
+    files.forEach((file) => {
+        formData.append('images', file);
+    });
+
+    const totalPhotos = files.length;
+    const progressMessage =
+        totalPhotos > 1 ? `正在上传 ${totalPhotos} 张照片并调用 AI 检查…` : '正在上传照片并调用 AI 检查…';
 
     setPhotoCheckButtonState(true);
     resetPhotoCheckResults();
     setPhotoCheckStatus('');
-    showPhotoCheckProgress('正在上传照片并调用 AI 检查…');
+    showPhotoCheckProgress(progressMessage);
 
     try {
         const response = await fetch('/api/photo-check', {
@@ -253,7 +259,8 @@ photoCheckForm?.addEventListener('submit', async (event) => {
 
         updatePhotoCheckProgress('检查完成，正在整理结果…');
         renderPhotoCheckResults(data);
-        const hasProblems = Array.isArray(data?.problems) && data.problems.length > 0;
+        const problemCount = resolvePhotoCheckProblemCount(data);
+        const hasProblems = problemCount > 0;
         hidePhotoCheckProgress();
         setPhotoCheckStatus(
             hasProblems ? '检查完成，以下为识别结果。' : '检查完成，但未能识别出具体题目。',
@@ -1795,28 +1802,235 @@ function renderPhotoCheckResults(result) {
         return;
     }
 
-    const attempts = normalizePhotoCheckResultAttempts(result);
-    const summaryText = buildPhotoCheckOverallSummary(attempts);
+    const batches = normalizePhotoCheckBatchResults(result);
+    const overall = aggregatePhotoCheckBatchSummary(batches);
+    const summaryText = buildPhotoCheckBatchSummaryText(batches, overall);
 
     updatePhotoCheckPreview();
 
-    const { rows, attemptOrder, attemptMetadata } = buildPhotoCheckProblemRows(attempts);
-
     photoCheckReport.innerHTML = '';
 
-    if (rows.length === 0) {
+    if (batches.length === 0) {
         const empty = document.createElement('p');
         empty.className = 'photo-check-report__attempt-empty';
         empty.textContent = '未能识别出具体题目。';
         photoCheckReport.appendChild(empty);
     } else {
-        rows.forEach((row) => {
-            photoCheckReport.appendChild(createPhotoCheckProblemRow(row, attemptOrder, attemptMetadata));
+        batches.forEach((batch) => {
+            photoCheckReport.appendChild(createPhotoCheckReportGroup(batch));
         });
     }
 
     photoCheckSummary.textContent = summaryText;
     photoCheckResultsSection.hidden = false;
+}
+
+function normalizePhotoCheckBatchResults(result) {
+    if (!result) {
+        return [];
+    }
+
+    if (Array.isArray(result.results) && result.results.length > 0) {
+        return result.results
+            .map((item, index) => {
+                const attempts = normalizePhotoCheckResultAttempts(item);
+                const summary = normalizePhotoCheckSummary(item?.summary);
+                const name = typeof item?.name === 'string' ? item.name.trim() : '';
+                const resolvedIndex = resolvePhotoCheckBatchIndex(item, index);
+                return {
+                    index: resolvedIndex,
+                    order: index,
+                    name,
+                    attempts,
+                    summary,
+                    image: normalizePhotoCheckBatchImage(item?.image || null)
+                };
+            })
+            .sort((a, b) => {
+                if (a.index === b.index) {
+                    return a.order - b.order;
+                }
+                return a.index - b.index;
+            });
+    }
+
+    const attempts = normalizePhotoCheckResultAttempts(result);
+
+    return [
+        {
+            index: 1,
+            order: 0,
+            name: '',
+            attempts,
+            summary: normalizePhotoCheckSummary(result?.summary),
+            image: normalizePhotoCheckBatchImage(result?.image || null)
+        }
+    ];
+}
+
+function normalizePhotoCheckBatchImage(image) {
+    if (!image || typeof image !== 'object') {
+        return null;
+    }
+
+    const url = typeof image.url === 'string' ? image.url : null;
+    const width = toFiniteNumber(image.width);
+    const height = toFiniteNumber(image.height);
+
+    if (!url && !Number.isFinite(width) && !Number.isFinite(height)) {
+        return null;
+    }
+
+    return {
+        url,
+        width: Number.isFinite(width) ? width : null,
+        height: Number.isFinite(height) ? height : null
+    };
+}
+
+function normalizePhotoCheckSummary(summary) {
+    const toSafeCount = (value) => {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            return 0;
+        }
+        return Math.max(0, Math.round(number));
+    };
+
+    let total = toSafeCount(summary?.total);
+    let correct = toSafeCount(summary?.correct);
+    let incorrect = toSafeCount(summary?.incorrect);
+    let unknown = toSafeCount(summary?.unknown);
+
+    const providedUnknown = summary?.unknown;
+
+    total = Math.max(total, correct + incorrect + unknown);
+
+    const remaining = Math.max(0, total - correct - incorrect);
+
+    if (providedUnknown == null) {
+        unknown = remaining;
+    } else {
+        unknown = Math.min(unknown, remaining);
+    }
+
+    return {
+        total,
+        correct,
+        incorrect,
+        unknown
+    };
+}
+
+function resolvePhotoCheckBatchIndex(item, fallbackIndex) {
+    const candidates = [item?.index, item?.order, item?.sequence, item?.position];
+    for (let idx = 0; idx < candidates.length; idx += 1) {
+        const value = toFiniteNumber(candidates[idx]);
+        if (Number.isFinite(value) && value > 0) {
+            return Math.max(1, Math.floor(value));
+        }
+    }
+    return fallbackIndex + 1;
+}
+
+function aggregatePhotoCheckBatchSummary(batches) {
+    return batches.reduce(
+        (accumulator, batch) => {
+            const summary = batch?.summary || { total: 0, correct: 0, incorrect: 0, unknown: 0 };
+            accumulator.total += Number(summary.total) || 0;
+            accumulator.correct += Number(summary.correct) || 0;
+            accumulator.incorrect += Number(summary.incorrect) || 0;
+            accumulator.unknown += Number(summary.unknown) || 0;
+            return accumulator;
+        },
+        { total: 0, correct: 0, incorrect: 0, unknown: 0 }
+    );
+}
+
+function buildPhotoCheckBatchSummaryText(batches, overall) {
+    const totalPhotos = Array.isArray(batches) ? batches.length : 0;
+
+    if (totalPhotos === 0) {
+        return '未能从照片中识别出题目。本次检查通常会调用 3 次 AI（qwen 识别题目、qwen 复核答案、kimi 复核答案）。';
+    }
+
+    const parts = [`本次共检查 ${totalPhotos} 张照片`];
+
+    const normalizedOverall = normalizePhotoCheckSummary(overall || {});
+    const { total, correct, incorrect, unknown } = normalizedOverall;
+
+    if (total > 0) {
+        parts.push(`识别到 ${total} 道题`);
+        parts.push(`${correct} 题判断正确`);
+        if (incorrect > 0) {
+            parts.push(`${incorrect} 题需要复查`);
+        }
+        if (unknown > 0) {
+            parts.push(`${unknown} 题待人工确认`);
+        }
+    } else {
+        parts.push('未能识别出具体题目');
+    }
+
+    parts.push('以下结果按上传顺序展示');
+
+    return `${parts.join('，')}。`;
+}
+
+function createPhotoCheckReportGroup(batch) {
+    const group = document.createElement('article');
+    group.className = 'photo-check-report__group';
+
+    const header = document.createElement('header');
+    header.className = 'photo-check-report__group-header';
+
+    const title = document.createElement('h4');
+    title.className = 'photo-check-report__group-title';
+    const name = batch?.name ? `（${batch.name}）` : '';
+    title.textContent = `第 ${batch.index} 张照片${name}`;
+    header.appendChild(title);
+
+    const summary = document.createElement('p');
+    summary.className = 'photo-check-report__group-summary';
+    summary.textContent = buildPhotoCheckOverallSummary(batch?.attempts || []);
+    header.appendChild(summary);
+
+    group.appendChild(header);
+
+    const { rows, attemptOrder, attemptMetadata } = buildPhotoCheckProblemRows(batch?.attempts || []);
+
+    if (rows.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'photo-check-report__attempt-empty';
+        empty.textContent = '未能识别出具体题目。';
+        group.appendChild(empty);
+        return group;
+    }
+
+    rows.forEach((row) => {
+        group.appendChild(createPhotoCheckProblemRow(row, attemptOrder, attemptMetadata));
+    });
+
+    return group;
+}
+
+function resolvePhotoCheckProblemCount(result) {
+    if (!result) {
+        return 0;
+    }
+
+    if (Array.isArray(result.results)) {
+        return result.results.reduce((total, item) => {
+            const problems = Array.isArray(item?.problems) ? item.problems.length : 0;
+            return total + problems;
+        }, 0);
+    }
+
+    if (Array.isArray(result.problems)) {
+        return result.problems.length;
+    }
+
+    return 0;
 }
 
 function buildPhotoCheckProblemRows(attempts) {
