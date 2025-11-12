@@ -24,6 +24,9 @@ const DATA_DIR = path.join(ROOT_DIR, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const ENTRIES_FILE = path.join(DATA_DIR, 'entries.json');
 const LOG_FILE = path.join(DATA_DIR, 'activity.log');
+const PHOTO_CHECK_DIR = path.join(DATA_DIR, 'photo-check');
+const PHOTO_CHECK_RECORDS_DIR = path.join(PHOTO_CHECK_DIR, 'records');
+const PHOTO_CHECK_HISTORY_FILE = path.join(PHOTO_CHECK_DIR, 'history.json');
 
 const MM_PER_INCH = 25.4;
 const A4_WIDTH_MM = 210;
@@ -377,11 +380,26 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
 
         const flattenedProblems = results.flatMap((item) => (Array.isArray(item.problems) ? item.problems : []));
 
-        res.json({
+        const payload = {
             totalImages: results.length,
             overall,
             results,
             problems: flattenedProblems
+        };
+
+        const record = await savePhotoCheckRecord(payload);
+
+        await logAction('photo-check-record', 'success', {
+            id: record.id,
+            createdAt: record.createdAt,
+            totalImages: payload.totalImages,
+            problems: Array.isArray(payload.problems) ? payload.problems.length : 0
+        });
+
+        res.json({
+            ...payload,
+            recordId: record.id,
+            createdAt: record.createdAt
         });
     } catch (error) {
         console.error(error);
@@ -2354,6 +2372,8 @@ async function writeEntries(entries) {
 async function ensureDirectories() {
     await fsp.mkdir(DATA_DIR, { recursive: true });
     await fsp.mkdir(UPLOADS_DIR, { recursive: true });
+    await fsp.mkdir(PHOTO_CHECK_DIR, { recursive: true });
+    await fsp.mkdir(PHOTO_CHECK_RECORDS_DIR, { recursive: true });
 }
 
 async function removeMedia(...urls) {
@@ -2406,6 +2426,64 @@ async function finalizePhotoStorage(filePath, filename) {
         photoResizedUrl: resized ? resized.url : null,
         photoScale
     };
+}
+
+async function savePhotoCheckRecord(result) {
+    if (!result || typeof result !== 'object') {
+        throw new Error('无法保存拍照检查记录：结果为空。');
+    }
+
+    await ensureDirectories();
+
+    const id = `pc-${Date.now()}-${randomUUID()}`;
+    const createdAt = new Date().toISOString();
+
+    const record = {
+        id,
+        createdAt,
+        totalImages: Number(result.totalImages) || 0,
+        overall: result.overall || { total: 0, correct: 0, incorrect: 0, unknown: 0 },
+        results: Array.isArray(result.results) ? result.results : [],
+        problems: Array.isArray(result.problems) ? result.problems : []
+    };
+
+    const filePath = path.join(PHOTO_CHECK_RECORDS_DIR, `${id}.json`);
+    await fsp.writeFile(filePath, JSON.stringify(record, null, 2), 'utf8');
+
+    await updatePhotoCheckHistory(record);
+
+    return record;
+}
+
+async function updatePhotoCheckHistory(record) {
+    const metadata = {
+        id: record.id,
+        createdAt: record.createdAt,
+        totalImages: record.totalImages,
+        problems: Array.isArray(record.problems) ? record.problems.length : 0,
+        overall: record.overall || { total: 0, correct: 0, incorrect: 0, unknown: 0 }
+    };
+
+    let history = [];
+    try {
+        const raw = await fsp.readFile(PHOTO_CHECK_HISTORY_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            history = parsed;
+        }
+    } catch (error) {
+        if (error.code !== 'ENOENT') {
+            console.warn('Failed to read photo check history file', error);
+        }
+    }
+
+    history.unshift(metadata);
+
+    if (history.length > 200) {
+        history = history.slice(0, 200);
+    }
+
+    await fsp.writeFile(PHOTO_CHECK_HISTORY_FILE, JSON.stringify(history, null, 2), 'utf8');
 }
 
 async function generateResizedVariant(filePath) {

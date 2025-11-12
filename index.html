@@ -241,6 +241,14 @@
             <section id="photo-check-results" class="photo-check-results" hidden>
                 <h3>检查报告</h3>
                 <p id="photo-check-summary" class="photo-check-summary"></p>
+                <div id="photo-check-actions" class="photo-check-actions" hidden>
+                    <p id="photo-check-selection-status" class="photo-check-selection-status">尚未选择题目。</p>
+                    <div class="photo-check-actions__controls">
+                        <button type="button" id="photo-check-save-btn" class="btn btn-primary" disabled>
+                            保存到错题本
+                        </button>
+                    </div>
+                </div>
                 <div class="photo-check-results__content">
                     <div id="photo-check-report" class="photo-check-report"></div>
                 </div>
@@ -443,6 +451,18 @@
             </td>
         </tr>
     </template>
+
+    <dialog id="photo-check-save-dialog">
+        <form method="dialog" id="photo-check-save-form" class="photo-check-save-form">
+            <h2>保存到错题本</h2>
+            <p id="photo-check-save-status" class="photo-check-save-status" role="status" aria-live="polite"></p>
+            <div id="photo-check-save-list" class="photo-check-save-list"></div>
+            <menu class="dialog-actions">
+                <button type="button" id="photo-check-save-cancel" class="btn">取消</button>
+                <button type="submit" id="photo-check-save-confirm" class="btn btn-primary">保存</button>
+            </menu>
+        </form>
+    </dialog>
 
     <dialog id="edit-dialog">
         <form method="dialog" id="edit-form" class="form-grid">

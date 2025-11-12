@@ -15,6 +15,14 @@ const state = {
     pagination: {
         page: 1,
         pageSize: 10
+    },
+    photoCheck: {
+        batches: [],
+        problems: new Map(),
+        selection: new Set(),
+        recordId: null,
+        createdAt: null,
+        isSaving: false
     }
 };
 
@@ -77,6 +85,15 @@ const photoCheckPreview = document.getElementById('photo-check-preview');
 const photoCheckImagePreview = document.getElementById('photo-check-image-preview');
 const photoCheckProgress = document.getElementById('photo-check-progress');
 const photoCheckProgressLabel = document.getElementById('photo-check-progress-label');
+const photoCheckActions = document.getElementById('photo-check-actions');
+const photoCheckSelectionStatus = document.getElementById('photo-check-selection-status');
+const photoCheckSaveBtn = document.getElementById('photo-check-save-btn');
+const photoCheckSaveDialog = document.getElementById('photo-check-save-dialog');
+const photoCheckSaveForm = document.getElementById('photo-check-save-form');
+const photoCheckSaveList = document.getElementById('photo-check-save-list');
+const photoCheckSaveStatus = document.getElementById('photo-check-save-status');
+const photoCheckSaveCancel = document.getElementById('photo-check-save-cancel');
+const photoCheckSaveConfirm = document.getElementById('photo-check-save-confirm');
 const wizardPanel = document.getElementById('wizard-panel');
 const openWizardPanelLink = document.getElementById('open-wizard-panel');
 const closeWizardPanelLink = document.getElementById('close-wizard-panel');
@@ -275,6 +292,49 @@ photoCheckForm?.addEventListener('submit', async (event) => {
         hidePhotoCheckProgress();
         setPhotoCheckButtonState(false);
     }
+});
+
+photoCheckReport?.addEventListener('change', (event) => {
+    const checkbox = event.target.closest('.photo-check-problem__select-input');
+    if (!checkbox) return;
+
+    const key = checkbox.dataset.selectionKey;
+    if (!key) {
+        checkbox.checked = false;
+        return;
+    }
+
+    if (checkbox.checked) {
+        state.photoCheck.selection.add(key);
+    } else {
+        state.photoCheck.selection.delete(key);
+    }
+
+    const item = checkbox.closest('.photo-check-report__item');
+    if (item) {
+        item.classList.toggle('is-selected', checkbox.checked);
+    }
+
+    updatePhotoCheckSelectionUI();
+});
+
+photoCheckSaveBtn?.addEventListener('click', (event) => {
+    event.preventDefault();
+    openPhotoCheckSaveDialog();
+});
+
+photoCheckSaveCancel?.addEventListener('click', (event) => {
+    event.preventDefault();
+    photoCheckSaveDialog?.close('cancel');
+});
+
+photoCheckSaveDialog?.addEventListener('close', () => {
+    setPhotoCheckSaveStatus('');
+});
+
+photoCheckSaveForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await saveSelectedPhotoCheckProblems();
 });
 
 openWizardPanelLink?.addEventListener('click', (event) => {
@@ -1806,6 +1866,13 @@ function renderPhotoCheckResults(result) {
     const overall = aggregatePhotoCheckBatchSummary(batches);
     const summaryText = buildPhotoCheckBatchSummaryText(batches, overall);
 
+    state.photoCheck.batches = batches;
+    state.photoCheck.problems = buildPhotoCheckSelectionMap(batches);
+    state.photoCheck.selection.clear();
+    state.photoCheck.recordId = typeof result?.recordId === 'string' ? result.recordId : null;
+    state.photoCheck.createdAt = typeof result?.createdAt === 'string' ? result.createdAt : null;
+    state.photoCheck.isSaving = false;
+
     updatePhotoCheckPreview();
 
     photoCheckReport.innerHTML = '';
@@ -1823,6 +1890,617 @@ function renderPhotoCheckResults(result) {
 
     photoCheckSummary.textContent = summaryText;
     photoCheckResultsSection.hidden = false;
+
+    syncPhotoCheckSelectionToDom();
+    updatePhotoCheckSelectionUI();
+}
+
+function buildPhotoCheckSelectionKey(batchIndex, problemIndex) {
+    const batchValue = toFiniteNumber(batchIndex);
+    const problemValue = toFiniteNumber(problemIndex);
+
+    if (!Number.isFinite(batchValue) || batchValue <= 0 || !Number.isFinite(problemValue) || problemValue <= 0) {
+        return '';
+    }
+
+    const normalizedBatch = Math.max(1, Math.floor(batchValue));
+    const normalizedProblem = Math.max(1, Math.floor(problemValue));
+    return `${normalizedBatch}:${normalizedProblem}`;
+}
+
+function buildPhotoCheckSelectionMap(batches) {
+    const map = new Map();
+    const list = Array.isArray(batches) ? batches : [];
+
+    list.forEach((batch) => {
+        const batchIndex = toFiniteNumber(batch?.index) || 0;
+        const { rows, attemptOrder, attemptMetadata } = buildPhotoCheckProblemRows(batch?.attempts || []);
+
+        rows.forEach((row) => {
+            const key = buildPhotoCheckSelectionKey(batchIndex || row.index, row.index);
+            if (!key) {
+                return;
+            }
+
+            const attempts = Array.from(row.attempts.entries()).map(([attemptIndex, problem]) => {
+                const metadata = attemptMetadata instanceof Map ? attemptMetadata.get(attemptIndex) : null;
+                return {
+                    attemptIndex,
+                    provider: metadata?.provider || null,
+                    label: metadata?.label || null,
+                    problem
+                };
+            });
+
+            map.set(key, {
+                key,
+                batchIndex: batchIndex || row.index,
+                batchName: typeof batch?.name === 'string' ? batch.name : '',
+                problemIndex: row.index,
+                attempts,
+                attemptOrder: Array.isArray(attemptOrder) ? [...attemptOrder] : [],
+                image: findPhotoCheckProblemImage(row, attemptOrder),
+                boundingBox: row.boundingBox || null
+            });
+        });
+    });
+
+    return map;
+}
+
+function syncPhotoCheckSelectionToDom() {
+    if (!photoCheckReport) {
+        return;
+    }
+
+    const checkboxes = photoCheckReport.querySelectorAll('.photo-check-problem__select-input');
+    checkboxes.forEach((checkbox) => {
+        const key = checkbox.dataset.selectionKey;
+        const checked = key ? state.photoCheck.selection.has(key) : false;
+        checkbox.checked = checked;
+        const item = checkbox.closest('.photo-check-report__item');
+        if (item) {
+            item.classList.toggle('is-selected', checked);
+        }
+    });
+}
+
+function updatePhotoCheckSelectionUI() {
+    const hasResults = Array.isArray(state.photoCheck.batches) && state.photoCheck.batches.length > 0;
+
+    if (photoCheckActions) {
+        photoCheckActions.hidden = !hasResults;
+    }
+
+    const selectedCount = state.photoCheck.selection.size;
+
+    if (photoCheckSelectionStatus) {
+        let statusText;
+        if (!hasResults) {
+            statusText = '尚未进行拍照检查。';
+        } else if (selectedCount > 0) {
+            statusText = `已选择 ${selectedCount} 道题。`;
+        } else {
+            statusText = '尚未选择题目。';
+        }
+
+        if (state.photoCheck.recordId) {
+            statusText += ` 记录编号：${state.photoCheck.recordId}`;
+        }
+
+        photoCheckSelectionStatus.textContent = statusText;
+    }
+
+    if (photoCheckSaveBtn) {
+        photoCheckSaveBtn.disabled = !hasResults || selectedCount === 0 || state.photoCheck.isSaving;
+        photoCheckSaveBtn.classList.toggle('is-busy', state.photoCheck.isSaving);
+    }
+
+    if (photoCheckSaveConfirm) {
+        photoCheckSaveConfirm.disabled = state.photoCheck.isSaving || selectedCount === 0;
+    }
+}
+
+function openPhotoCheckSaveDialog() {
+    if (!photoCheckSaveDialog) {
+        return;
+    }
+
+    if (state.photoCheck.selection.size === 0) {
+        setPhotoCheckStatus('请先在检查报告中选择需要保存的题目。', 'error');
+        return;
+    }
+
+    populatePhotoCheckSaveDialog();
+    setPhotoCheckSaveStatus('');
+    photoCheckSaveDialog.showModal();
+}
+
+function populatePhotoCheckSaveDialog() {
+    if (!photoCheckSaveList) {
+        return;
+    }
+
+    photoCheckSaveList.innerHTML = '';
+
+    const selectedItems = Array.from(state.photoCheck.selection)
+        .map((key) => state.photoCheck.problems.get(key))
+        .filter(Boolean)
+        .sort((a, b) => {
+            if (a.batchIndex === b.batchIndex) {
+                return a.problemIndex - b.problemIndex;
+            }
+            return a.batchIndex - b.batchIndex;
+        });
+
+    if (selectedItems.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'photo-check-save-item__summary';
+        empty.textContent = '请在检查报告中先选择需要保存的题目。';
+        photoCheckSaveList.appendChild(empty);
+        if (photoCheckSaveConfirm) {
+            photoCheckSaveConfirm.disabled = true;
+        }
+        return;
+    }
+
+    selectedItems.forEach((item) => {
+        const draft = buildPhotoCheckEntryDraft(item);
+        photoCheckSaveList.appendChild(createPhotoCheckSaveItem(item, draft));
+    });
+
+    if (photoCheckSaveConfirm) {
+        photoCheckSaveConfirm.disabled = false;
+    }
+}
+
+function createPhotoCheckSaveItem(item, draft) {
+    const fieldset = document.createElement('fieldset');
+    fieldset.className = 'photo-check-save-item';
+    fieldset.dataset.problemKey = item.key;
+    fieldset.dataset.batchIndex = String(Math.max(1, Math.floor(toFiniteNumber(item.batchIndex) || 1)));
+    fieldset.dataset.problemIndex = String(Math.max(1, Math.floor(toFiniteNumber(item.problemIndex) || 1)));
+
+    const legend = document.createElement('legend');
+    const batchLabel = Number.isFinite(Number(item.batchIndex))
+        ? `第 ${Math.max(1, Math.floor(item.batchIndex))} 张照片`
+        : '检查结果';
+    legend.textContent = `第 ${Math.max(1, Math.floor(toFiniteNumber(item.problemIndex) || 1))} 题 · ${batchLabel}`;
+    fieldset.appendChild(legend);
+
+    const summary = document.createElement('p');
+    summary.className = 'photo-check-save-item__summary';
+    const verdictText = resolvePhotoCheckVerdictText(item);
+    const sourceLabel = item.batchName ? `来源：${item.batchName}` : batchLabel;
+    summary.textContent = `${verdictText} · ${sourceLabel}`;
+
+    if (draft.imageUrl) {
+        summary.appendChild(document.createTextNode(' '));
+        const previewLink = document.createElement('a');
+        previewLink.href = draft.imageUrl;
+        previewLink.target = '_blank';
+        previewLink.rel = 'noopener';
+        previewLink.textContent = '查看截图';
+        summary.appendChild(previewLink);
+    }
+
+    fieldset.appendChild(summary);
+
+    const hiddenImageInput = document.createElement('input');
+    hiddenImageInput.type = 'hidden';
+    hiddenImageInput.dataset.field = 'imageUrl';
+    hiddenImageInput.value = draft.imageUrl || '';
+    fieldset.appendChild(hiddenImageInput);
+
+    const grid = document.createElement('div');
+    grid.className = 'photo-check-save-item__grid';
+    fieldset.appendChild(grid);
+
+    const createField = (labelText, element, options = {}) => {
+        const wrapper = document.createElement('label');
+        wrapper.className = 'field';
+        if (options.span === 2) {
+            wrapper.classList.add('field--span-2');
+        }
+        const span = document.createElement('span');
+        span.textContent = labelText;
+        wrapper.appendChild(span);
+        wrapper.appendChild(element);
+        return wrapper;
+    };
+
+    const sourceInput = document.createElement('input');
+    sourceInput.type = 'text';
+    sourceInput.dataset.field = 'source';
+    sourceInput.setAttribute('list', 'source-history');
+    sourceInput.value = draft.source || '';
+    grid.appendChild(createField('来源', sourceInput));
+
+    const subjectInputElement = document.createElement('input');
+    subjectInputElement.type = 'text';
+    subjectInputElement.dataset.field = 'subject';
+    subjectInputElement.setAttribute('list', 'subject-options');
+    subjectInputElement.value = draft.subject || '';
+    grid.appendChild(createField('学科', subjectInputElement));
+
+    const semesterInput = document.createElement('select');
+    semesterInput.dataset.field = 'semester';
+    if (semesterSelect) {
+        Array.from(semesterSelect.options).forEach((option) => {
+            semesterInput.appendChild(option.cloneNode(true));
+        });
+    } else {
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '请选择';
+        semesterInput.appendChild(placeholder);
+        ['八上', '八下', '九上', '九下'].forEach((value) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = value;
+            semesterInput.appendChild(option);
+        });
+    }
+    semesterInput.value = draft.semester || '';
+    grid.appendChild(createField('学期', semesterInput));
+
+    const questionTypeInput = document.createElement('input');
+    questionTypeInput.type = 'text';
+    questionTypeInput.dataset.field = 'questionType';
+    questionTypeInput.setAttribute('list', 'question-type-history');
+    questionTypeInput.value = draft.questionType || '';
+    grid.appendChild(createField('题目类型', questionTypeInput));
+
+    const errorReasonInput = document.createElement('textarea');
+    errorReasonInput.rows = 2;
+    errorReasonInput.dataset.field = 'errorReason';
+    errorReasonInput.value = draft.errorReason || '';
+    grid.appendChild(createField('错误原因', errorReasonInput, { span: 2 }));
+
+    const questionTextInput = document.createElement('textarea');
+    questionTextInput.rows = 3;
+    questionTextInput.dataset.field = 'questionText';
+    questionTextInput.value = draft.questionText || '';
+    grid.appendChild(createField('题目内容（文字）', questionTextInput, { span: 2 }));
+
+    const answerTextInput = document.createElement('textarea');
+    answerTextInput.rows = 3;
+    answerTextInput.dataset.field = 'answerText';
+    answerTextInput.value = draft.answerText || '';
+    grid.appendChild(createField('答案（文字）', answerTextInput, { span: 2 }));
+
+    const remarkInput = document.createElement('textarea');
+    remarkInput.rows = 3;
+    remarkInput.dataset.field = 'remark';
+    remarkInput.value = draft.remark || '';
+    grid.appendChild(createField('备注', remarkInput, { span: 2 }));
+
+    return fieldset;
+}
+
+function resolvePhotoCheckVerdictText(item) {
+    const attempts = Array.isArray(item?.attempts) ? item.attempts : [];
+    let hasUnknown = false;
+    let hasCorrect = false;
+
+    for (const attempt of attempts) {
+        const verdict = attempt?.problem?.isCorrect;
+        if (verdict === false) {
+            return 'AI 判定：需要复查';
+        }
+        if (verdict === true) {
+            hasCorrect = true;
+        }
+        if (verdict == null) {
+            hasUnknown = true;
+        }
+    }
+
+    if (hasCorrect) {
+        return 'AI 判定：回答正确';
+    }
+
+    if (hasUnknown) {
+        return 'AI 判定：结果不确定';
+    }
+
+    return 'AI 判定：未识别';
+}
+
+function buildPhotoCheckEntryDraft(item) {
+    const attempts = Array.isArray(item?.attempts) ? item.attempts.slice() : [];
+    attempts.sort((a, b) => (a?.attemptIndex || 0) - (b?.attemptIndex || 0));
+
+    const reviewProblems = attempts
+        .filter((attempt) => attempt && attempt.attemptIndex !== 1 && attempt.problem)
+        .map((attempt) => attempt.problem);
+    const primaryProblems = attempts.filter((attempt) => attempt?.problem).map((attempt) => attempt.problem);
+    const combinedProblems = [...reviewProblems, ...primaryProblems];
+
+    const pickFirstText = (values) => {
+        for (const value of values) {
+            const text = cleanPhotoCheckText(value);
+            if (text) {
+                return text;
+            }
+        }
+        return '';
+    };
+
+    const questionText = pickFirstText(combinedProblems.map((problem) => problem?.question));
+    const answerText =
+        pickFirstText(reviewProblems.map((problem) => problem?.solvedAnswer)) ||
+        pickFirstText(primaryProblems.map((problem) => problem?.solvedAnswer)) ||
+        '待补充';
+    const studentAnswer = pickFirstText(primaryProblems.map((problem) => problem?.studentAnswer));
+    const analysis =
+        pickFirstText(reviewProblems.map((problem) => problem?.analysis)) ||
+        pickFirstText(primaryProblems.map((problem) => problem?.analysis));
+
+    let verdict = null;
+    for (const problem of combinedProblems) {
+        if (!problem) continue;
+        if (problem.isCorrect === false) {
+            verdict = false;
+            break;
+        }
+        if (problem.isCorrect === true && verdict !== false) {
+            verdict = true;
+        }
+    }
+
+    if (verdict === null && combinedProblems.some((problem) => problem && problem.isCorrect == null)) {
+        verdict = null;
+    }
+
+    const remarkParts = [];
+    if (studentAnswer) {
+        remarkParts.push(`学生作答：${studentAnswer}`);
+    }
+    if (analysis) {
+        remarkParts.push(`AI 解析：${analysis}`);
+    }
+    if (state.photoCheck.recordId) {
+        remarkParts.push(`来自拍照检查记录 ${state.photoCheck.recordId}`);
+    }
+
+    let errorReason = '';
+    if (verdict === false) {
+        errorReason = 'AI判定为错误';
+    } else if (verdict == null) {
+        errorReason = 'AI判定待确认';
+    }
+
+    return {
+        source: item?.batchName ? item.batchName : '拍照检查',
+        subject: getDefaultSubjectValue(),
+        semester: getDefaultSemesterValue(),
+        questionType: '',
+        questionText: questionText || '',
+        answerText: answerText || '待补充',
+        errorReason,
+        remark: remarkParts.filter(Boolean).join('\n\n'),
+        imageUrl: item?.image?.url || ''
+    };
+}
+
+function collectPhotoCheckSelectionsFromForm() {
+    if (!photoCheckSaveList) {
+        return [];
+    }
+
+    const items = [];
+    const fieldsets = photoCheckSaveList.querySelectorAll('.photo-check-save-item');
+
+    fieldsets.forEach((fieldset) => {
+        const key = fieldset.dataset.problemKey;
+        if (!key) {
+            return;
+        }
+
+        const data = state.photoCheck.problems.get(key);
+        if (!data) {
+            return;
+        }
+
+        const readFieldValue = (name) => {
+            const element = fieldset.querySelector(`[data-field="${name}"]`);
+            if (!element) {
+                return '';
+            }
+            if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+                return element.value.trim();
+            }
+            return '';
+        };
+
+        items.push({
+            key,
+            item: data,
+            fields: {
+                source: readFieldValue('source'),
+                subject: readFieldValue('subject'),
+                semester: readFieldValue('semester'),
+                questionType: readFieldValue('questionType'),
+                questionText: readFieldValue('questionText'),
+                answerText: readFieldValue('answerText'),
+                errorReason: readFieldValue('errorReason'),
+                remark: readFieldValue('remark'),
+                imageUrl: readFieldValue('imageUrl')
+            }
+        });
+    });
+
+    return items;
+}
+
+function setPhotoCheckSaveStatus(message, variant) {
+    if (!photoCheckSaveStatus) {
+        return;
+    }
+
+    photoCheckSaveStatus.textContent = message || '';
+    photoCheckSaveStatus.classList.remove('is-error', 'is-success');
+
+    if (!message) {
+        return;
+    }
+
+    if (variant === 'error') {
+        photoCheckSaveStatus.classList.add('is-error');
+    } else if (variant === 'success') {
+        photoCheckSaveStatus.classList.add('is-success');
+    }
+}
+
+async function fetchPhotoCheckImageBlob(url, options = {}) {
+    if (!url) {
+        return null;
+    }
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`下载题目截图失败（${response.status}）`);
+        }
+
+        const blob = await response.blob();
+        const extension = resolvePhotoCheckImageExtension(blob, url);
+        const baseName = slugifyForFileName(options.baseName || 'photo-check');
+        const name = `${baseName}.${extension}`;
+        return { blob, name };
+    } catch (error) {
+        console.warn('Failed to download photo check image', error);
+        return null;
+    }
+}
+
+function resolvePhotoCheckImageExtension(blob, url) {
+    const type = blob?.type || '';
+    if (type.includes('png')) return 'png';
+    if (type.includes('jpeg')) return 'jpg';
+    if (type.includes('jpg')) return 'jpg';
+    if (type.includes('webp')) return 'webp';
+    if (type.includes('gif')) return 'gif';
+
+    const match = /\.([a-zA-Z0-9]+)(?:\?|#|$)/.exec(url || '');
+    if (match) {
+        const ext = match[1].toLowerCase();
+        if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
+            return ext === 'jpeg' ? 'jpg' : ext;
+        }
+    }
+
+    return 'png';
+}
+
+function slugifyForFileName(value, fallback = 'photo-check') {
+    if (value == null) {
+        return fallback;
+    }
+
+    const slug = value
+        .toString()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    return slug || fallback;
+}
+
+async function saveSelectedPhotoCheckProblems() {
+    if (state.photoCheck.isSaving) {
+        return;
+    }
+
+    const selections = collectPhotoCheckSelectionsFromForm();
+    if (selections.length === 0) {
+        setPhotoCheckSaveStatus('请先选择需要保存的题目。', 'error');
+        return;
+    }
+
+    state.photoCheck.isSaving = true;
+    updatePhotoCheckSelectionUI();
+    setPhotoCheckSaveStatus('正在保存选中的错题…');
+
+    let savedCount = 0;
+
+    try {
+        for (const selection of selections) {
+            const { item, fields } = selection;
+
+            const formData = new FormData();
+            const source = fields.source || item.batchName || '拍照检查';
+            const subject = fields.subject || getDefaultSubjectValue();
+            const semester = fields.semester || getDefaultSemesterValue();
+            const questionType = fields.questionType || '';
+            const questionText = fields.questionText || '';
+            const answerText = fields.answerText || '待补充';
+            const errorReason = fields.errorReason || '';
+            const remark = fields.remark || '';
+            const createdAt = resolvePhotoCheckCreatedAtDate();
+
+            formData.set('source', source);
+            formData.set('subject', subject);
+            formData.set('semester', semester);
+            formData.set('questionType', questionType);
+            formData.set('questionText', questionText);
+            formData.set('answerText', answerText);
+            formData.set('errorReason', errorReason);
+            formData.set('remark', remark);
+            formData.set('createdAt', createdAt);
+
+            let hasQuestionImage = false;
+
+            if (fields.imageUrl) {
+                const baseName = `photo-check-b${Math.max(1, Math.floor(toFiniteNumber(item.batchIndex) || 1))}-q${Math.max(
+                    1,
+                    Math.floor(toFiniteNumber(item.problemIndex) || 1)
+                )}`;
+                const imageBlob = await fetchPhotoCheckImageBlob(fields.imageUrl, { baseName });
+                if (imageBlob) {
+                    formData.append('questionImage', imageBlob.blob, imageBlob.name);
+                    hasQuestionImage = true;
+                }
+            }
+
+            if (!hasQuestionImage && !questionText) {
+                throw new Error(`第 ${item.problemIndex} 题缺少题目内容，请补充题干或保持截图有效。`);
+            }
+
+            const saved = await submitEntry(formData);
+            if (!saved) {
+                throw new Error(`保存第 ${item.problemIndex} 题失败，请检查填写内容。`);
+            }
+
+            savedCount += 1;
+        }
+
+        setPhotoCheckSaveStatus(`成功保存 ${savedCount} 道题。`, 'success');
+        photoCheckSaveDialog?.close('success');
+        state.photoCheck.selection.clear();
+        syncPhotoCheckSelectionToDom();
+        updatePhotoCheckSelectionUI();
+        setPhotoCheckStatus(`已保存 ${savedCount} 道题到错题本。`, 'success');
+    } catch (error) {
+        console.error('Failed to save selected photo check problems', error);
+        setPhotoCheckSaveStatus(error?.message || '保存错题时出现问题，请稍后重试。', 'error');
+        return;
+    } finally {
+        state.photoCheck.isSaving = false;
+        updatePhotoCheckSelectionUI();
+    }
+}
+
+function resolvePhotoCheckCreatedAtDate() {
+    if (state.photoCheck.createdAt) {
+        const value = toDateInputValue(state.photoCheck.createdAt);
+        if (value) {
+            return value;
+        }
+    }
+    return todayDateValue();
 }
 
 function normalizePhotoCheckBatchResults(result) {
@@ -2008,7 +2686,7 @@ function createPhotoCheckReportGroup(batch) {
     }
 
     rows.forEach((row) => {
-        group.appendChild(createPhotoCheckProblemRow(row, attemptOrder, attemptMetadata));
+        group.appendChild(createPhotoCheckProblemRow(batch, row, attemptOrder, attemptMetadata));
     });
 
     return group;
@@ -2134,10 +2812,17 @@ function resolvePhotoCheckProblemIndex(problem, fallbackIndex) {
     return Math.max(1, Math.floor(fallbackIndex || 1));
 }
 
-function createPhotoCheckProblemRow(row, attemptOrder, attemptMetadata) {
+function createPhotoCheckProblemRow(batch, row, attemptOrder, attemptMetadata) {
     const item = document.createElement('article');
     item.className = 'photo-check-report__item photo-check-report__item--grid';
     item.dataset.problemIndex = String(row.index);
+
+    const batchIndex = toFiniteNumber(batch?.index) || row.index;
+    item.dataset.batchIndex = String(Math.max(1, Math.floor(batchIndex)));
+
+    if (typeof batch?.name === 'string' && batch.name.trim()) {
+        item.dataset.batchName = batch.name.trim();
+    }
 
     if (row.boundingBox) {
         try {
@@ -2147,10 +2832,42 @@ function createPhotoCheckProblemRow(row, attemptOrder, attemptMetadata) {
         }
     }
 
+    const selectionKey = buildPhotoCheckSelectionKey(batchIndex, row.index);
+    if (selectionKey) {
+        item.dataset.selectionKey = selectionKey;
+    }
+
+    const header = document.createElement('div');
+    header.className = 'photo-check-problem__header';
+    item.appendChild(header);
+
     const title = document.createElement('h3');
     title.className = 'photo-check-problem__title';
     title.textContent = `第 ${row.index} 题`;
-    item.appendChild(title);
+    header.appendChild(title);
+
+    const selectLabel = document.createElement('label');
+    selectLabel.className = 'photo-check-problem__select';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'photo-check-problem__select-input';
+    checkbox.setAttribute('aria-label', `选择第 ${row.index} 题保存到错题本`);
+    if (selectionKey) {
+        checkbox.dataset.selectionKey = selectionKey;
+        checkbox.checked = state.photoCheck.selection.has(selectionKey);
+    }
+    selectLabel.appendChild(checkbox);
+
+    const selectText = document.createElement('span');
+    selectText.textContent = '加入错题本';
+    selectLabel.appendChild(selectText);
+
+    header.appendChild(selectLabel);
+
+    if (checkbox.checked) {
+        item.classList.add('is-selected');
+    }
 
     const normalizedOrder = Array.isArray(attemptOrder) ? attemptOrder : [];
 
@@ -2608,6 +3325,13 @@ function resetPhotoCheckResults() {
     if (photoCheckResultsSection) {
         photoCheckResultsSection.hidden = true;
     }
+    state.photoCheck.batches = [];
+    state.photoCheck.problems = new Map();
+    state.photoCheck.selection.clear();
+    state.photoCheck.recordId = null;
+    state.photoCheck.createdAt = null;
+    state.photoCheck.isSaving = false;
+    updatePhotoCheckSelectionUI();
 }
 
 function normalizePhotoCheckProblem(problem, index) {
@@ -3304,6 +4028,34 @@ function setDefaultSubjectAndSemester() {
     if (wizardSemesterSelect && !wizardSemesterSelect.value) {
         wizardSemesterSelect.value = '八上';
     }
+}
+
+function getDefaultSubjectValue() {
+    const direct = (subjectInput?.value || '').toString().trim();
+    if (direct) {
+        return direct;
+    }
+
+    const wizardValue = (wizardSubjectInput?.value || '').toString().trim();
+    if (wizardValue) {
+        return wizardValue;
+    }
+
+    return getLastSubject() || '数学';
+}
+
+function getDefaultSemesterValue() {
+    const direct = (semesterSelect?.value || '').toString().trim();
+    if (direct) {
+        return direct;
+    }
+
+    const wizardValue = (wizardSemesterSelect?.value || '').toString().trim();
+    if (wizardValue) {
+        return wizardValue;
+    }
+
+    return '八上';
 }
 
 function formatDateDisplay(iso) {
