@@ -30,6 +30,7 @@ const state = {
             lastLoadedAt: null,
             selectedId: null,
             loadingRecordId: null,
+            mutatingId: null,
             message: '',
             messageVariant: ''
         }
@@ -363,6 +364,25 @@ photoCheckHistoryRefreshBtn?.addEventListener('click', async (event) => {
 });
 
 photoCheckHistoryList?.addEventListener('click', async (event) => {
+    const actionButton = event.target.closest('.photo-check-history__action-btn');
+    if (actionButton) {
+        const id = actionButton.dataset.photoCheckHistoryId;
+        const action = actionButton.dataset.photoCheckHistoryAction;
+        if (!id || !action) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (action === 'alias') {
+            await promptPhotoCheckHistoryAlias(id);
+        } else if (action === 'delete') {
+            await deletePhotoCheckHistoryItem(id);
+        }
+        return;
+    }
+
     const button = event.target.closest('.photo-check-history__entry');
     if (!button) {
         return;
@@ -2099,29 +2119,61 @@ function renderPhotoCheckHistory() {
         const li = document.createElement('li');
         li.className = 'photo-check-history__item';
 
+        const container = document.createElement('div');
+        container.className = 'photo-check-history__entry-container';
+        li.appendChild(container);
+
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'photo-check-history__entry';
         button.dataset.photoCheckHistoryId = item.id;
 
+        const aliasText = typeof item.alias === 'string' && item.alias.trim() ? item.alias.trim() : '';
         const tooltipTime = formatDateTimeWithMinutes(item.createdAt);
-        if (tooltipTime) {
-            button.title = `拍照检查时间：${tooltipTime}`;
-        } else {
-            button.title = `拍照检查记录 ${item.id}`;
+        const tooltipParts = [];
+
+        if (aliasText) {
+            tooltipParts.push(`别名：${aliasText}`);
         }
+        if (tooltipTime) {
+            tooltipParts.push(`拍照检查时间：${tooltipTime}`);
+        } else {
+            tooltipParts.push(`拍照检查记录 ${item.id}`);
+        }
+
+        button.title = tooltipParts.join('\n');
 
         if (historyState.selectedId && historyState.selectedId === item.id) {
             button.classList.add('is-active');
         }
 
-        if (historyState.loadingRecordId && historyState.loadingRecordId === item.id) {
+        if (
+            (historyState.loadingRecordId && historyState.loadingRecordId === item.id) ||
+            (historyState.mutatingId && historyState.mutatingId === item.id)
+        ) {
             button.disabled = true;
         }
 
         const title = document.createElement('span');
         title.className = 'photo-check-history__entry-title';
-        title.textContent = formatPhotoCheckHistoryTitle(item);
+
+        const fullTitleText = formatPhotoCheckHistoryTitle(item);
+        const timestampText = item.createdAt ? fullTitleText : '';
+        if (aliasText) {
+            const aliasEl = document.createElement('span');
+            aliasEl.className = 'photo-check-history__alias';
+            aliasEl.textContent = aliasText;
+            title.appendChild(aliasEl);
+
+            if (timestampText) {
+                const timeEl = document.createElement('span');
+                timeEl.className = 'photo-check-history__timestamp';
+                timeEl.textContent = timestampText;
+                title.appendChild(timeEl);
+            }
+        } else {
+            title.textContent = fullTitleText;
+        }
         button.appendChild(title);
 
         const meta = document.createElement('div');
@@ -2142,16 +2194,64 @@ function renderPhotoCheckHistory() {
             meta.appendChild(loadingBadge);
         }
 
+        if (historyState.mutatingId && historyState.mutatingId === item.id) {
+            const mutatingBadge = document.createElement('span');
+            mutatingBadge.className = 'photo-check-history__badge';
+            mutatingBadge.textContent = '处理中…';
+            meta.appendChild(mutatingBadge);
+        }
+
         if (meta.childElementCount > 0) {
             button.appendChild(meta);
         }
 
         const extra = document.createElement('span');
         extra.className = 'photo-check-history__extra';
-        extra.textContent = `记录编号：${item.id}`;
+        const extraParts = [`记录编号：${item.id}`];
+        if (aliasText) {
+            extraParts.push(`别名：${aliasText}`);
+        }
+        extra.textContent = extraParts.join(' · ');
         button.appendChild(extra);
 
-        li.appendChild(button);
+        container.appendChild(button);
+
+        const actions = document.createElement('div');
+        actions.className = 'photo-check-history__actions';
+
+        const aliasButton = document.createElement('button');
+        aliasButton.type = 'button';
+        aliasButton.className = 'btn btn-secondary btn-compact photo-check-history__action-btn';
+        aliasButton.dataset.photoCheckHistoryId = item.id;
+        aliasButton.dataset.photoCheckHistoryAction = 'alias';
+        aliasButton.textContent = aliasText ? '修改别名' : '添加别名';
+        aliasButton.title = aliasText ? '修改该记录的别名' : '为该记录添加别名';
+        if (historyState.isLoading) {
+            aliasButton.disabled = true;
+        }
+        if (historyState.mutatingId && historyState.mutatingId === item.id) {
+            aliasButton.disabled = true;
+            aliasButton.classList.add('is-busy');
+        }
+        actions.appendChild(aliasButton);
+
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'btn btn-danger btn-compact photo-check-history__action-btn';
+        deleteButton.dataset.photoCheckHistoryId = item.id;
+        deleteButton.dataset.photoCheckHistoryAction = 'delete';
+        deleteButton.textContent = '删除';
+        deleteButton.title = '删除该历史记录';
+        if (historyState.isLoading) {
+            deleteButton.disabled = true;
+        }
+        if (historyState.mutatingId && historyState.mutatingId === item.id) {
+            deleteButton.disabled = true;
+            deleteButton.classList.add('is-busy');
+        }
+        actions.appendChild(deleteButton);
+
+        container.appendChild(actions);
         photoCheckHistoryList.appendChild(li);
     });
 }
@@ -2254,11 +2354,143 @@ async function loadPhotoCheckHistoryRecord(id) {
 
         renderPhotoCheckResults(recordPayload);
         setPhotoCheckStatus('已加载历史记录。', 'success');
+        historyState.selectedId = normalizedId;
     } catch (error) {
         console.error('Failed to load photo check record', error);
         setPhotoCheckStatus(error?.message || '无法读取拍照检查记录。', 'error');
     } finally {
         historyState.loadingRecordId = null;
+        renderPhotoCheckHistory();
+    }
+}
+
+async function promptPhotoCheckHistoryAlias(id) {
+    const normalizedId = typeof id === 'string' ? id.trim() : '';
+    if (!normalizedId) {
+        return;
+    }
+
+    const historyState = state.photoCheck.history;
+    if (!historyState || historyState.mutatingId) {
+        // Another mutation is in progress; defer until it completes.
+        return;
+    }
+
+    const currentItem = historyState.items.find((item) => item.id === normalizedId);
+    const currentAliasRaw = typeof currentItem?.alias === 'string' ? currentItem.alias : '';
+    const currentAlias = currentAliasRaw.replace(/\s+/g, ' ').trim();
+
+    const input = window.prompt('请输入该历史记录的别名（留空可清除）：', currentAliasRaw);
+    if (input === null) {
+        return;
+    }
+
+    let alias = input.replace(/\s+/g, ' ').trim();
+    if (alias.length > 100) {
+        alias = alias.slice(0, 100);
+        alert('别名已截断为 100 个字符。');
+    }
+
+    if (alias === currentAlias) {
+        return;
+    }
+
+    await savePhotoCheckHistoryAlias(normalizedId, alias);
+}
+
+async function savePhotoCheckHistoryAlias(id, alias) {
+    const normalizedId = typeof id === 'string' ? id.trim() : '';
+    if (!normalizedId) {
+        return;
+    }
+
+    const historyState = state.photoCheck.history;
+    if (!historyState || historyState.mutatingId) {
+        return;
+    }
+
+    historyState.mutatingId = normalizedId;
+    historyState.message = '';
+    historyState.messageVariant = '';
+    renderPhotoCheckHistory();
+
+    try {
+        const response = await fetch(`/api/photo-check/history/${encodeURIComponent(normalizedId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alias })
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            const message = payload?.error || '无法更新拍照检查别名。';
+            throw new Error(message);
+        }
+
+        upsertPhotoCheckHistoryItem(payload);
+        const aliasMessage = alias ? '别名已更新。' : '别名已清除。';
+        historyState.message = aliasMessage;
+        historyState.messageVariant = 'success';
+    } catch (error) {
+        console.error('Failed to update photo check history alias', error);
+        historyState.message = error?.message || '无法更新拍照检查别名。';
+        historyState.messageVariant = 'error';
+    } finally {
+        historyState.mutatingId = null;
+        renderPhotoCheckHistory();
+    }
+}
+
+async function deletePhotoCheckHistoryItem(id) {
+    const normalizedId = typeof id === 'string' ? id.trim() : '';
+    if (!normalizedId) {
+        return;
+    }
+
+    const historyState = state.photoCheck.history;
+    if (!historyState || historyState.mutatingId) {
+        return;
+    }
+
+    const confirmed = window.confirm('确定要删除该拍照检查记录吗？此操作无法撤销。');
+    if (!confirmed) {
+        return;
+    }
+
+    historyState.mutatingId = normalizedId;
+    historyState.message = '';
+    historyState.messageVariant = '';
+    renderPhotoCheckHistory();
+
+    try {
+        const response = await fetch(`/api/photo-check/history/${encodeURIComponent(normalizedId)}`, {
+            method: 'DELETE'
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            const message = payload?.error || '无法删除拍照检查记录。';
+            throw new Error(message);
+        }
+
+        historyState.items = historyState.items.filter((item) => item.id !== normalizedId);
+
+        if (historyState.selectedId === normalizedId) {
+            historyState.selectedId = null;
+        }
+
+        if (state.photoCheck.recordId === normalizedId) {
+            resetPhotoCheckResults();
+        }
+
+        historyState.message = '历史记录已删除。';
+        historyState.messageVariant = 'success';
+    } catch (error) {
+        console.error('Failed to delete photo check history record', error);
+        historyState.message = error?.message || '无法删除拍照检查记录。';
+        historyState.messageVariant = 'error';
+    } finally {
+        historyState.mutatingId = null;
         renderPhotoCheckHistory();
     }
 }
@@ -2301,9 +2533,14 @@ function buildPhotoCheckHistoryMetadata(result, batches, overall) {
     }
 
     const createdAt = typeof result.createdAt === 'string' ? result.createdAt : null;
+    let alias = '';
+    if (typeof result.alias === 'string') {
+        alias = result.alias.replace(/\s+/g, ' ').trim().slice(0, 100);
+    }
 
     return {
         id,
+        alias,
         createdAt,
         totalImages,
         problems,
@@ -2342,8 +2579,14 @@ function normalizePhotoCheckHistoryItem(raw) {
         problems = Number.isFinite(numericProblems) ? Math.max(0, Math.round(numericProblems)) : summary.total;
     }
 
+    let alias = '';
+    if (typeof raw.alias === 'string') {
+        alias = raw.alias.replace(/\s+/g, ' ').trim().slice(0, 100);
+    }
+
     return {
         id,
+        alias,
         createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : null,
         totalImages,
         problems,
