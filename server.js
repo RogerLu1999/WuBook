@@ -414,29 +414,104 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
 
 app.get('/api/photo-check/history', async (req, res) => {
     try {
-        await ensureDirectories();
-
-        let history = [];
-        try {
-            const raw = await fsp.readFile(PHOTO_CHECK_HISTORY_FILE, 'utf8');
-            if (raw.trim()) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) {
-                    history = parsed;
-                }
-            }
-        } catch (error) {
-            if (error.code !== 'ENOENT') {
-                throw error;
-            }
-        }
-
+        const history = await readPhotoCheckHistoryList();
         await logAction('photo-check-history', 'success', { total: history.length });
         res.json(history);
     } catch (error) {
         console.error('Failed to read photo check history', error);
         await logAction('photo-check-history', 'error', { message: error.message });
         res.status(500).json({ error: '无法读取拍照检查历史记录。' });
+    }
+});
+
+app.patch('/api/photo-check/history/:id', async (req, res) => {
+    const rawId = typeof req.params.id === 'string' ? req.params.id.trim() : '';
+    if (!rawId) {
+        return res.status(400).json({ error: '缺少记录编号。' });
+    }
+
+    if (!/^[a-zA-Z0-9-]+$/.test(rawId)) {
+        return res.status(400).json({ error: '记录编号格式不正确。' });
+    }
+
+    const aliasInput = typeof req.body?.alias === 'string' ? req.body.alias : '';
+    const alias = normalizeHistoryAlias(aliasInput);
+    const storedAlias = alias || null;
+
+    try {
+        const history = await readPhotoCheckHistoryList();
+        const index = history.findIndex((item) => item && item.id === rawId);
+        if (index === -1) {
+            await logAction('photo-check-history-alias', 'error', { id: rawId, code: 'ENOENT' });
+            return res.status(404).json({ error: '未找到对应的拍照检查记录。' });
+        }
+
+        const existingAlias = normalizeHistoryAlias(history[index]?.alias ?? '');
+        if ((existingAlias || null) === storedAlias) {
+            await logAction('photo-check-history-alias', 'success', {
+                id: rawId,
+                alias: storedAlias,
+                unchanged: true
+            });
+            return res.json(history[index]);
+        }
+
+        history[index] = { ...history[index], alias: storedAlias };
+        await writePhotoCheckHistoryList(history);
+
+        try {
+            await updatePhotoCheckRecordAlias(rawId, alias);
+        } catch (error) {
+            if (error.code !== 'ENOENT') {
+                throw error;
+            }
+        }
+
+        await logAction('photo-check-history-alias', 'success', { id: rawId, alias: storedAlias });
+        res.json(history[index]);
+    } catch (error) {
+        console.error('Failed to update photo check history alias', error);
+        await logAction('photo-check-history-alias', 'error', { id: rawId, message: error.message });
+        res.status(500).json({ error: '无法更新拍照检查别名。' });
+    }
+});
+
+app.delete('/api/photo-check/history/:id', async (req, res) => {
+    const rawId = typeof req.params.id === 'string' ? req.params.id.trim() : '';
+    if (!rawId) {
+        return res.status(400).json({ error: '缺少记录编号。' });
+    }
+
+    if (!/^[a-zA-Z0-9-]+$/.test(rawId)) {
+        return res.status(400).json({ error: '记录编号格式不正确。' });
+    }
+
+    try {
+        const history = await readPhotoCheckHistoryList();
+        const index = history.findIndex((item) => item && item.id === rawId);
+        if (index === -1) {
+            await logAction('photo-check-history-delete', 'error', { id: rawId, code: 'ENOENT' });
+            return res.status(404).json({ error: '未找到对应的拍照检查记录。' });
+        }
+
+        history.splice(index, 1);
+        await writePhotoCheckHistoryList(history);
+
+        const filePath = path.join(PHOTO_CHECK_RECORDS_DIR, `${rawId}.json`);
+        try {
+            await fsp.unlink(filePath);
+        } catch (error) {
+            if (error.code !== 'ENOENT') {
+                throw error;
+            }
+        }
+
+        await logAction('photo-check-history-delete', 'success', { id: rawId });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Failed to delete photo check history record', error);
+        await logAction('photo-check-history-delete', 'error', { id: rawId, message: error.message });
+        res.status(500).json({ error: '无法删除拍照检查记录。' });
     }
 });
 
@@ -2503,11 +2578,14 @@ async function savePhotoCheckRecord(result) {
     const id = `pc-${Date.now()}-${randomUUID()}`;
     const createdAt = new Date().toISOString();
 
+    const alias = normalizeHistoryAlias(result.alias ?? '');
+
     const record = {
         id,
         createdAt,
         totalImages: Number(result.totalImages) || 0,
         overall: result.overall || { total: 0, correct: 0, incorrect: 0, unknown: 0 },
+        alias: alias || null,
         results: Array.isArray(result.results) ? result.results : [],
         problems: Array.isArray(result.problems) ? result.problems : []
     };
@@ -2520,35 +2598,71 @@ async function savePhotoCheckRecord(result) {
     return record;
 }
 
+async function readPhotoCheckHistoryList() {
+    await ensureDirectories();
+
+    try {
+        const raw = await fsp.readFile(PHOTO_CHECK_HISTORY_FILE, 'utf8');
+        if (!raw.trim()) {
+            return [];
+        }
+
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return [];
+        }
+        throw error;
+    }
+}
+
+async function writePhotoCheckHistoryList(history) {
+    await ensureDirectories();
+    await fsp.writeFile(PHOTO_CHECK_HISTORY_FILE, JSON.stringify(history, null, 2), 'utf8');
+}
+
+function normalizeHistoryAlias(value) {
+    if (typeof value !== 'string') {
+        return '';
+    }
+
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+        return '';
+    }
+
+    return normalized.slice(0, 100);
+}
+
+async function updatePhotoCheckRecordAlias(id, alias) {
+    const filePath = path.join(PHOTO_CHECK_RECORDS_DIR, `${id}.json`);
+    const raw = await fsp.readFile(filePath, 'utf8');
+    const record = raw.trim() ? JSON.parse(raw) : {};
+    const normalized = normalizeHistoryAlias(alias ?? '');
+    record.alias = normalized || null;
+    await fsp.writeFile(filePath, JSON.stringify(record, null, 2), 'utf8');
+}
+
 async function updatePhotoCheckHistory(record) {
+    const alias = normalizeHistoryAlias(record.alias ?? '');
     const metadata = {
         id: record.id,
         createdAt: record.createdAt,
         totalImages: record.totalImages,
         problems: Array.isArray(record.problems) ? record.problems.length : 0,
-        overall: record.overall || { total: 0, correct: 0, incorrect: 0, unknown: 0 }
+        overall: record.overall || { total: 0, correct: 0, incorrect: 0, unknown: 0 },
+        alias: alias || null
     };
 
-    let history = [];
-    try {
-        const raw = await fsp.readFile(PHOTO_CHECK_HISTORY_FILE, 'utf8');
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-            history = parsed;
-        }
-    } catch (error) {
-        if (error.code !== 'ENOENT') {
-            console.warn('Failed to read photo check history file', error);
-        }
-    }
-
+    const history = await readPhotoCheckHistoryList();
     history.unshift(metadata);
 
     if (history.length > 200) {
         history = history.slice(0, 200);
     }
 
-    await fsp.writeFile(PHOTO_CHECK_HISTORY_FILE, JSON.stringify(history, null, 2), 'utf8');
+    await writePhotoCheckHistoryList(history);
 }
 
 async function generateResizedVariant(filePath) {
