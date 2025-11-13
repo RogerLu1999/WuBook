@@ -42,7 +42,7 @@ const TARGET_TEXT_HEIGHT_PX = Math.round((TARGET_FONT_POINT_SIZE / 72) * SCREEN_
 const MIN_IMAGE_SCALE = 0.3;
 const MAX_IMAGE_SCALE = 1.2;
 const DEFAULT_IMAGE_SCALE = 1;
-const PAPER_IMAGE_BASE_WIDTH = 600;
+const PAPER_IMAGE_BASE_WIDTH = 520;
 const PHOTO_CHECK_CROP_PADDING = 16;
 
 const SUBJECT_PREFIX_MAP = new Map([
@@ -3119,16 +3119,17 @@ async function loadImageForDoc(doc, url, options = {}) {
     try {
         const baseMaxWidth = options.baseMaxWidth || 600;
         const scaleOption = parseScale(options.scale);
-        const effectiveScale = scaleOption === null ? 1 : scaleOption;
+        const normalizedScale =
+            scaleOption === null ? 1 : Math.min(Math.max(scaleOption, MIN_IMAGE_SCALE), 1);
 
         const { data, info } = await sharp(filePath, { failOnError: false })
             .rotate()
             .toBuffer({ resolveWithObject: true });
         let { width, height } = info;
         if (width && height) {
-            let targetWidth = width * effectiveScale;
-            let targetHeight = height * effectiveScale;
-            const maxWidth = baseMaxWidth * Math.max(1, effectiveScale);
+            let targetWidth = width * normalizedScale;
+            let targetHeight = height * normalizedScale;
+            const maxWidth = baseMaxWidth;
             if (targetWidth > maxWidth) {
                 const adjust = maxWidth / targetWidth;
                 targetWidth *= adjust;
