@@ -252,6 +252,21 @@
             <section id="photo-check-results" class="photo-check-results" hidden>
                 <h3>检查报告</h3>
                 <p id="photo-check-summary" class="photo-check-summary"></p>
+                <section
+                    id="photo-check-preview"
+                    class="photo-check-preview"
+                    aria-labelledby="photo-check-preview-title"
+                    hidden
+                >
+                    <div class="photo-check-preview__header">
+                        <h4 id="photo-check-preview-title">原始照片</h4>
+                        <div id="photo-check-preview-list" class="photo-check-preview__options"></div>
+                    </div>
+                    <figure class="photo-check-preview__figure">
+                        <img id="photo-check-image-preview" alt="" loading="lazy" />
+                        <figcaption id="photo-check-preview-caption" class="photo-check-preview__caption"></figcaption>
+                    </figure>
+                </section>
                 <div id="photo-check-actions" class="photo-check-actions" hidden>
                     <p id="photo-check-selection-status" class="photo-check-selection-status">尚未选择题目。</p>
                     <div class="photo-check-actions__controls">
