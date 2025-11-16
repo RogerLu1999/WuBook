@@ -71,6 +71,28 @@ const SUBJECT_PREFIX_MAP = new Map([
     ['Science', 'S']
 ]);
 
+function decodeUploadFilename(name) {
+    if (typeof name !== 'string' || name.length === 0) {
+        return '';
+    }
+
+    try {
+        const buffer = Buffer.from(name, 'latin1');
+        const decoded = buffer.toString('utf8');
+        const reencoded = Buffer.from(decoded, 'utf8').toString('latin1');
+        return reencoded === name ? decoded : name;
+    } catch (error) {
+        return name;
+    }
+}
+
+function getUploadedFileName(file) {
+    if (!file || typeof file.originalname !== 'string') {
+        return '';
+    }
+    return decodeUploadFilename(file.originalname).trim();
+}
+
 const preferIPv4Lookup =
     typeof dns.lookup === 'function'
         ? (hostname, options, callback) => {
@@ -186,7 +208,8 @@ const uploadStorage = multer.diskStorage({
         }
     },
     filename: (req, file, cb) => {
-        const ext = path.extname(file.originalname);
+        const originalName = getUploadedFileName(file);
+        const ext = path.extname(originalName || file?.originalname || '');
         cb(null, `${Date.now()}-${randomUUID()}${ext}`);
     }
 });
@@ -329,6 +352,8 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
                 const summary = normalizePhotoCheckAttemptSummary(primaryAttempt.summary);
                 const primaryProblems = clonePhotoCheckProblems(primaryAttempt.problems);
 
+                const originalName = getUploadedFileName(file);
+
                 await logAction('photo-check', 'success', {
                     provider: 'qwen+kimi',
                     total: summary.total,
@@ -336,7 +361,7 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
                     incorrect: summary.incorrect,
                     unknown: summary.unknown,
                     index: index + 1,
-                    name: file.originalname || null
+                    name: originalName || null
                 });
 
                 overall.total += summary.total;
@@ -348,7 +373,7 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
 
                 results.push({
                     index: index + 1,
-                    name: typeof file.originalname === 'string' ? file.originalname : null,
+                    name: originalName || null,
                     summary,
                     problems: primaryProblems,
                     image: {
@@ -369,11 +394,12 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
                 });
             } catch (error) {
                 const errorMessage = error?.message || '无法完成拍照检查。';
-                const displayName = typeof file?.originalname === 'string' ? file.originalname : `第 ${index + 1} 张照片`;
+                const originalName = getUploadedFileName(file);
+                const displayName = originalName || `第 ${index + 1} 张照片`;
                 throw Object.assign(new Error(`${displayName}：${errorMessage}`), {
                     cause: error,
                     batchIndex: index + 1,
-                    batchName: file?.originalname || null
+                    batchName: originalName || null
                 });
             }
         }
