@@ -23,6 +23,7 @@ const state = {
         recordId: null,
         createdAt: null,
         previewIndex: 0,
+        previewCollapsed: true,
         isSaving: false,
         history: {
             items: [],
@@ -104,6 +105,7 @@ const photoCheckPreview = document.getElementById('photo-check-preview');
 const photoCheckPreviewList = document.getElementById('photo-check-preview-list');
 const photoCheckPreviewCaption = document.getElementById('photo-check-preview-caption');
 const photoCheckImagePreview = document.getElementById('photo-check-image-preview');
+const photoCheckPreviewToggle = document.getElementById('photo-check-preview-toggle');
 const photoCheckProgress = document.getElementById('photo-check-progress');
 const photoCheckProgressLabel = document.getElementById('photo-check-progress-label');
 const photoCheckActions = document.getElementById('photo-check-actions');
@@ -413,6 +415,30 @@ photoCheckPreviewList?.addEventListener('click', (event) => {
 
     state.photoCheck.previewIndex = index;
     updatePhotoCheckPreview();
+});
+
+photoCheckPreviewToggle?.addEventListener('click', (event) => {
+    event.preventDefault();
+    if (!photoCheckPreview || photoCheckPreview.hidden) {
+        return;
+    }
+    setPhotoCheckPreviewCollapsed(!state.photoCheck.previewCollapsed);
+});
+
+photoCheckReport?.addEventListener('click', (event) => {
+    const toggleButton = event.target.closest('.photo-check-report__group-toggle');
+    if (!toggleButton) {
+        return;
+    }
+
+    const group = toggleButton.closest('.photo-check-report__group');
+    if (!group) {
+        return;
+    }
+
+    event.preventDefault();
+    const isCollapsed = group.classList.toggle('is-collapsed');
+    updatePhotoCheckGroupToggleButton(toggleButton, isCollapsed);
 });
 
 renderPhotoCheckHistory();
@@ -1884,6 +1910,14 @@ function hidePhotoCheckPanel(options = {}) {
     }
 }
 
+function scrollPhotoCheckResultsIntoView() {
+    if (!photoCheckResultsSection || photoCheckResultsSection.hidden) {
+        return;
+    }
+
+    photoCheckResultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function resetPhotoCheckPanel() {
     photoCheckForm?.reset();
     resetPhotoCheckResults();
@@ -1953,6 +1987,7 @@ function renderPhotoCheckResults(result) {
     state.photoCheck.recordId = typeof result?.recordId === 'string' ? result.recordId : null;
     state.photoCheck.createdAt = typeof result?.createdAt === 'string' ? result.createdAt : null;
     state.photoCheck.previewIndex = 0;
+    state.photoCheck.previewCollapsed = true;
     state.photoCheck.isSaving = false;
 
     updatePhotoCheckPreview();
@@ -2372,6 +2407,7 @@ async function loadPhotoCheckHistoryRecord(id) {
         };
 
         renderPhotoCheckResults(recordPayload);
+        scrollPhotoCheckResultsIntoView();
         setPhotoCheckStatus('已加载历史记录。', 'success');
         historyState.selectedId = normalizedId;
     } catch (error) {
@@ -3381,18 +3417,33 @@ function createPhotoCheckReportGroup(batch) {
     const header = document.createElement('header');
     header.className = 'photo-check-report__group-header';
 
+    const headerRow = document.createElement('div');
+    headerRow.className = 'photo-check-report__group-header-row';
+
     const title = document.createElement('h4');
     title.className = 'photo-check-report__group-title';
     const name = batch?.name ? `（${batch.name}）` : '';
     title.textContent = `第 ${batch.index} 张照片${name}`;
-    header.appendChild(title);
+    headerRow.appendChild(title);
+
+    const toggleButton = document.createElement('button');
+    toggleButton.type = 'button';
+    toggleButton.className = 'btn btn-secondary btn-compact photo-check-report__group-toggle';
+    toggleButton.dataset.groupLabel = title.textContent || '检查报告';
+    updatePhotoCheckGroupToggleButton(toggleButton, false);
+    headerRow.appendChild(toggleButton);
+
+    header.appendChild(headerRow);
 
     const summary = document.createElement('p');
     summary.className = 'photo-check-report__group-summary';
     summary.textContent = buildPhotoCheckOverallSummary(batch?.attempts || []);
-    header.appendChild(summary);
 
     group.appendChild(header);
+
+    const content = document.createElement('div');
+    content.className = 'photo-check-report__group-content';
+    content.appendChild(summary);
 
     const { rows, attemptOrder, attemptMetadata } = buildPhotoCheckProblemRows(batch?.attempts || []);
 
@@ -3400,15 +3451,30 @@ function createPhotoCheckReportGroup(batch) {
         const empty = document.createElement('p');
         empty.className = 'photo-check-report__attempt-empty';
         empty.textContent = '未能识别出具体题目。';
-        group.appendChild(empty);
+        content.appendChild(empty);
+        group.appendChild(content);
         return group;
     }
 
     rows.forEach((row) => {
-        group.appendChild(createPhotoCheckProblemRow(batch, row, attemptOrder, attemptMetadata));
+        content.appendChild(createPhotoCheckProblemRow(batch, row, attemptOrder, attemptMetadata));
     });
 
+    group.appendChild(content);
+
     return group;
+}
+
+function updatePhotoCheckGroupToggleButton(button, collapsed) {
+    if (!button) {
+        return;
+    }
+
+    const label = button.dataset.groupLabel || '检查报告';
+    const action = collapsed ? '展开' : '折叠';
+    button.textContent = collapsed ? '展开检查报告' : '折叠检查报告';
+    button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    button.setAttribute('aria-label', `${action}${label}`);
 }
 
 function resolvePhotoCheckProblemCount(result) {
@@ -3793,6 +3859,7 @@ function updatePhotoCheckPreview() {
         }
         photoCheckPreviewList.innerHTML = '';
         photoCheckPreview.hidden = true;
+        applyPhotoCheckPreviewCollapseState();
         return;
     }
 
@@ -3826,6 +3893,34 @@ function updatePhotoCheckPreview() {
     }
 
     photoCheckPreview.hidden = false;
+    applyPhotoCheckPreviewCollapseState();
+}
+
+function setPhotoCheckPreviewCollapsed(collapsed) {
+    state.photoCheck.previewCollapsed = Boolean(collapsed);
+    applyPhotoCheckPreviewCollapseState();
+}
+
+function applyPhotoCheckPreviewCollapseState() {
+    if (!photoCheckPreview) {
+        return;
+    }
+
+    const hasPreviewContent = !photoCheckPreview.hidden;
+    const shouldCollapse = hasPreviewContent ? Boolean(state.photoCheck.previewCollapsed) : true;
+
+    if (hasPreviewContent) {
+        photoCheckPreview.classList.toggle('is-collapsed', shouldCollapse);
+    } else {
+        photoCheckPreview.classList.remove('is-collapsed');
+    }
+
+    if (photoCheckPreviewToggle) {
+        const expanded = hasPreviewContent && !shouldCollapse;
+        photoCheckPreviewToggle.disabled = !hasPreviewContent;
+        photoCheckPreviewToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        photoCheckPreviewToggle.textContent = expanded ? '折叠原始照片' : '展开原始照片';
+    }
 }
 
 function buildPhotoCheckPreviewItems(batches) {
@@ -4123,6 +4218,8 @@ function resetPhotoCheckResults() {
         }
         photoCheckPreview.hidden = true;
     }
+    state.photoCheck.previewCollapsed = true;
+    applyPhotoCheckPreviewCollapseState();
     if (photoCheckResultsSection) {
         photoCheckResultsSection.hidden = true;
     }
