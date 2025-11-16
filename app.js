@@ -22,6 +22,7 @@ const state = {
         selection: new Set(),
         recordId: null,
         createdAt: null,
+        previewIndex: 0,
         isSaving: false,
         history: {
             items: [],
@@ -100,6 +101,8 @@ const photoCheckResultsSection = document.getElementById('photo-check-results');
 const photoCheckSummary = document.getElementById('photo-check-summary');
 const photoCheckReport = document.getElementById('photo-check-report');
 const photoCheckPreview = document.getElementById('photo-check-preview');
+const photoCheckPreviewList = document.getElementById('photo-check-preview-list');
+const photoCheckPreviewCaption = document.getElementById('photo-check-preview-caption');
 const photoCheckImagePreview = document.getElementById('photo-check-image-preview');
 const photoCheckProgress = document.getElementById('photo-check-progress');
 const photoCheckProgressLabel = document.getElementById('photo-check-progress-label');
@@ -395,6 +398,21 @@ photoCheckHistoryList?.addEventListener('click', async (event) => {
 
     event.preventDefault();
     await loadPhotoCheckHistoryRecord(id);
+});
+
+photoCheckPreviewList?.addEventListener('click', (event) => {
+    const option = event.target.closest('.photo-check-preview__option');
+    if (!option) {
+        return;
+    }
+
+    const index = Number(option.dataset.previewIndex);
+    if (!Number.isFinite(index)) {
+        return;
+    }
+
+    state.photoCheck.previewIndex = index;
+    updatePhotoCheckPreview();
 });
 
 renderPhotoCheckHistory();
@@ -1934,6 +1952,7 @@ function renderPhotoCheckResults(result) {
     state.photoCheck.selection.clear();
     state.photoCheck.recordId = typeof result?.recordId === 'string' ? result.recordId : null;
     state.photoCheck.createdAt = typeof result?.createdAt === 'string' ? result.createdAt : null;
+    state.photoCheck.previewIndex = 0;
     state.photoCheck.isSaving = false;
 
     updatePhotoCheckPreview();
@@ -3760,13 +3779,89 @@ function buildPhotoCheckAttemptStatus(problem) {
 }
 
 function updatePhotoCheckPreview() {
-    if (!photoCheckPreview || !photoCheckImagePreview) {
+    if (!photoCheckPreview || !photoCheckImagePreview || !photoCheckPreviewList) {
         return;
     }
 
-    photoCheckImagePreview.removeAttribute('src');
-    photoCheckImagePreview.alt = '';
-    photoCheckPreview.hidden = true;
+    const previewItems = buildPhotoCheckPreviewItems(state.photoCheck.batches);
+
+    if (previewItems.length === 0) {
+        photoCheckImagePreview.removeAttribute('src');
+        photoCheckImagePreview.alt = '';
+        if (photoCheckPreviewCaption) {
+            photoCheckPreviewCaption.textContent = '';
+        }
+        photoCheckPreviewList.innerHTML = '';
+        photoCheckPreview.hidden = true;
+        return;
+    }
+
+    let previewIndex = Number(state.photoCheck.previewIndex);
+    if (!Number.isFinite(previewIndex) || previewIndex < 0 || previewIndex >= previewItems.length) {
+        previewIndex = 0;
+        state.photoCheck.previewIndex = 0;
+    }
+
+    const selected = previewItems[previewIndex];
+
+    photoCheckPreviewList.innerHTML = '';
+    previewItems.forEach((item, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-secondary btn-compact photo-check-preview__option';
+        if (index === previewIndex) {
+            button.classList.add('is-active');
+        }
+        button.dataset.previewIndex = String(index);
+        button.textContent = item.label;
+        photoCheckPreviewList.appendChild(button);
+    });
+
+    photoCheckImagePreview.src = selected.url;
+    photoCheckImagePreview.alt = selected.label;
+
+    if (photoCheckPreviewCaption) {
+        const sizeText = selected.sizeText ? `（${selected.sizeText}）` : '';
+        photoCheckPreviewCaption.textContent = `${selected.label}${sizeText}`;
+    }
+
+    photoCheckPreview.hidden = false;
+}
+
+function buildPhotoCheckPreviewItems(batches) {
+    if (!Array.isArray(batches) || batches.length === 0) {
+        return [];
+    }
+
+    const items = [];
+    batches.forEach((batch, index) => {
+        const image = batch?.image;
+        if (!image || typeof image.url !== 'string' || !image.url.trim()) {
+            return;
+        }
+
+        const labelParts = [];
+        const displayIndex = Number.isFinite(Number(batch?.index)) ? Number(batch.index) : index + 1;
+        labelParts.push(`第 ${displayIndex} 张照片`);
+        if (typeof batch?.name === 'string' && batch.name.trim()) {
+            labelParts.push(batch.name.trim());
+        }
+
+        let sizeText = '';
+        const width = toFiniteNumber(image.width);
+        const height = toFiniteNumber(image.height);
+        if (Number.isFinite(width) && Number.isFinite(height)) {
+            sizeText = `${width} × ${height}`;
+        }
+
+        items.push({
+            url: image.url,
+            label: labelParts.join(' - '),
+            sizeText
+        });
+    });
+
+    return items;
 }
 
 function normalizePhotoCheckResultAttempts(result) {
@@ -4020,6 +4115,12 @@ function resetPhotoCheckResults() {
     if (photoCheckPreview && photoCheckImagePreview) {
         photoCheckImagePreview.removeAttribute('src');
         photoCheckImagePreview.alt = '';
+        if (photoCheckPreviewCaption) {
+            photoCheckPreviewCaption.textContent = '';
+        }
+        if (photoCheckPreviewList) {
+            photoCheckPreviewList.innerHTML = '';
+        }
         photoCheckPreview.hidden = true;
     }
     if (photoCheckResultsSection) {
@@ -4030,6 +4131,7 @@ function resetPhotoCheckResults() {
     state.photoCheck.selection.clear();
     state.photoCheck.recordId = null;
     state.photoCheck.createdAt = null;
+    state.photoCheck.previewIndex = 0;
     state.photoCheck.isSaving = false;
     state.photoCheck.history.selectedId = null;
     renderPhotoCheckHistory();
