@@ -260,7 +260,17 @@
                 >
                     <div class="photo-check-preview__header">
                         <h4 id="photo-check-preview-title">原始照片</h4>
-                        <div id="photo-check-preview-list" class="photo-check-preview__options"></div>
+                        <div class="photo-check-preview__controls">
+                            <button
+                                type="button"
+                                id="photo-check-preview-toggle"
+                                class="btn btn-secondary btn-compact photo-check-preview__toggle"
+                                aria-expanded="false"
+                            >
+                                展开原始照片
+                            </button>
+                            <div id="photo-check-preview-list" class="photo-check-preview__options"></div>
+                        </div>
                     </div>
                     <figure class="photo-check-preview__figure">
                         <img id="photo-check-image-preview" alt="" loading="lazy" />
