@@ -301,6 +301,29 @@ app.post('/api/ocr', ocrUpload.single('image'), async (req, res) => {
     }
 });
 
+app.post('/api/formula-recognition', ocrUpload.single('image'), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: '缺少需要识别的图片文件。' });
+    }
+
+    try {
+        const processedImage = await preprocessOcrImage(req.file.buffer);
+        const result = await recognizeFormulaWithQwen(processedImage);
+
+        await logAction('formula-recognition', 'success', {
+            provider: 'qwen',
+            latexLength: result.latex?.length || 0,
+            mathml: Boolean(result.mathml)
+        });
+
+        res.json(result);
+    } catch (error) {
+        console.error('Formula recognition failed', error);
+        await logAction('formula-recognition', 'error', { message: error.message });
+        res.status(500).json({ error: error.message || '无法完成公式识别。' });
+    }
+});
+
 app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
     const files = [];
 
@@ -643,6 +666,91 @@ async function recognizeTextWithQwen(buffer) {
     return text;
 }
 
+async function recognizeFormulaWithQwen(buffer) {
+    const apiKey = process.env.DASHSCOPE_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 Qwen API Key 配置。');
+    }
+
+    if (typeof fetch !== 'function') {
+        throw new Error('当前运行环境不支持向 Qwen 发起请求。');
+    }
+
+    const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
+    const model = process.env.QWEN_VL_MODEL || 'qwen-vl-max';
+    const base64Image = buffer.toString('base64');
+
+    const systemPrompt =
+        '你是一位擅长数学 OCR 的 LaTeX 排版专家，需要把图片里的公式转换成可复制的电子排版。任何时候都请返回 JSON。';
+    const userPrompt = `请识别图片中的全部数学公式，并输出 JSON：
+{
+  "latex": "可直接用于 LaTeX/Word 的公式字符串",
+  "mathml": "可选的 MathML 表达式",
+  "plainText": "便于理解或复制的线性公式"
+}
+如果图片里有多行公式，请用 \\n 分行，保留分数、根号、上下标等结构，勿添加额外说明。`;
+
+    const payload = {
+        model,
+        input: {
+            messages: [
+                {
+                    role: 'system',
+                    content: [{ text: systemPrompt }]
+                },
+                {
+                    role: 'user',
+                    content: [
+                        { image: `data:image/png;base64,${base64Image}` },
+                        { text: userPrompt }
+                    ]
+                }
+            ]
+        },
+        parameters: {
+            result_format: 'text'
+        }
+    };
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = result?.message || `Qwen API 请求失败（${response.status}）`;
+        throw new Error(message);
+    }
+
+    if (result?.code && Number(result.code) !== 200) {
+        const message = result?.message || 'Qwen API 返回错误。';
+        throw new Error(message);
+    }
+
+    const text = extractTextFromQwenResponse(result);
+    if (!text) {
+        throw new Error('Qwen 未返回识别结果。');
+    }
+
+    const parsed = parseFormulaRecognitionJson(text);
+    if (!parsed) {
+        throw new Error('Qwen 返回结果格式不正确。');
+    }
+
+    const normalized = normalizeFormulaRecognitionResult(parsed);
+    if (!normalized.latex && !normalized.mathml && !normalized.plainText) {
+        throw new Error('Qwen 未能识别出可用的公式。');
+    }
+
+    return normalized;
+}
+
 function extractTextFromQwenResponse(result) {
     if (!result) return '';
 
@@ -679,6 +787,78 @@ function extractTextFromQwenResponse(result) {
     }
 
     return '';
+}
+
+function parseFormulaRecognitionJson(text) {
+    if (!text) return null;
+    const cleaned = text
+        .replace(/```(?:json|latex|math)?/gi, '```')
+        .replace(/```/g, '')
+        .trim();
+
+    if (!cleaned) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(cleaned);
+    } catch (error) {
+        // fall through
+    }
+
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+        const candidate = cleaned.slice(start, end + 1);
+        try {
+            return JSON.parse(candidate);
+        } catch (error) {
+            // continue
+        }
+    }
+
+    return { latex: cleaned };
+}
+
+function normalizeFormulaRecognitionResult(raw) {
+    if (!raw) {
+        return { latex: '', mathml: '', plainText: '' };
+    }
+
+    if (typeof raw === 'string') {
+        const text = sanitizeFormulaRecognitionText(raw);
+        return { latex: text, mathml: '', plainText: text };
+    }
+
+    const latexCandidates = [
+        raw.latex,
+        raw.latex_code,
+        raw.tex,
+        raw.LaTeX,
+        raw.formula,
+        raw.formulaLatex,
+        raw.expression,
+        raw.text
+    ];
+    const mathmlCandidates = [raw.mathml, raw.mathML, raw.math_ml];
+    const plainCandidates = [raw.plainText, raw.plain_text, raw.linear, raw.description, raw.readable, raw.caption];
+
+    const latex = latexCandidates.map(sanitizeFormulaRecognitionText).find(Boolean) || '';
+    const mathml = mathmlCandidates.map(sanitizeFormulaRecognitionText).find(Boolean) || '';
+    const plainText = plainCandidates.map(sanitizeFormulaRecognitionText).find(Boolean) || '';
+
+    return { latex, mathml, plainText };
+}
+
+function sanitizeFormulaRecognitionText(value) {
+    if (value == null) {
+        return '';
+    }
+    return String(value)
+        .replace(/```(?:json|latex|math)?/gi, '')
+        .replace(/```/g, '')
+        .replace(/^[^\S\r\n]+/gm, '')
+        .trim();
 }
 
 function extractTextFromQwenContentPart(part) {
