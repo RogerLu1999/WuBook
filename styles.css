@@ -196,7 +196,31 @@ body {
 }
 
 .photo-check-form {
-    align-items: flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.photo-check-form__input {
+    flex: 1 1 320px;
+}
+
+.photo-check-form__submit {
+    flex: 0 0 auto;
+    align-self: flex-end;
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .photo-check-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .photo-check-form__submit {
+        width: 100%;
+    }
 }
 
 .photo-check-status {
@@ -987,6 +1011,23 @@ body {
 .wizard-actions--form {
     grid-column: span 2;
     justify-content: flex-end;
+}
+
+.entry-form__meta-grid {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem 1.25rem;
+}
+
+.entry-form__meta-field textarea {
+    min-height: 4.25rem;
+}
+
+@media (max-width: 960px) {
+    .entry-form__meta-grid {
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
 }
 
 .field {

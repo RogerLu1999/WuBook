@@ -1915,12 +1915,16 @@ function showPhotoCheckPanel() {
     hideEntryPanel({ scroll: false, restoreEntries: false });
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
-    if (!photoCheckPanel.hidden) return;
-    photoCheckPanel.hidden = false;
+    const wasHidden = Boolean(photoCheckPanel.hidden);
+    if (wasHidden) {
+        photoCheckPanel.hidden = false;
+        loadPhotoCheckHistory({ lazy: true });
+    }
     openPhotoCheckPanelLink?.setAttribute('aria-expanded', 'true');
     photoCheckPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    photoCheckImageInput?.focus();
-    loadPhotoCheckHistory({ lazy: true });
+    if (wasHidden) {
+        photoCheckImageInput?.focus();
+    }
 }
 
 function hidePhotoCheckPanel(options = {}) {
@@ -4587,13 +4591,17 @@ function showEntryPanel() {
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
-    if (!entryPanel.hidden) return;
-    entryPanel.hidden = false;
+    const wasHidden = Boolean(entryPanel.hidden);
+    if (wasHidden) {
+        entryPanel.hidden = false;
+        setDefaultSubjectAndSemester();
+        setCreatedAtDefaultValue();
+    }
     openEntryPanelLink?.setAttribute('aria-expanded', 'true');
-    setDefaultSubjectAndSemester();
-    setCreatedAtDefaultValue();
     entryPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    document.getElementById('source')?.focus();
+    if (wasHidden) {
+        document.getElementById('source')?.focus();
+    }
 }
 
 function hideEntryPanel(options = {}) {
@@ -4621,12 +4629,16 @@ function showWizardPanel() {
     hideEntryPanel({ scroll: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
-    if (!wizardPanel.hidden) return;
-    resetWizard();
-    wizardPanel.hidden = false;
+    const wasHidden = Boolean(wizardPanel.hidden);
+    if (wasHidden) {
+        resetWizard();
+        wizardPanel.hidden = false;
+    }
     openWizardPanelLink?.setAttribute('aria-expanded', 'true');
     wizardPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    wizardOriginalInput?.focus();
+    if (wasHidden) {
+        wizardOriginalInput?.focus();
+    }
 }
 
 function hideWizardPanel(options = {}) {
