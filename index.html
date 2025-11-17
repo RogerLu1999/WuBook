@@ -8,8 +8,28 @@
 </head>
 <body>
     <header class="app-header">
-        <h1>Wu(悟)Book</h1>
-        <p class="tagline">A light-weight error book to help your child grow through mistakes.</p>
+        <div class="app-header__info">
+            <h1>Wu(悟)Book</h1>
+            <p class="tagline">A light-weight error book to help your child grow through mistakes.</p>
+        </div>
+        <nav class="app-header__nav" aria-label="主要功能切换">
+            <a
+                href="#"
+                id="open-photo-check-panel"
+                class="panel-link"
+                aria-controls="photo-check-panel"
+                aria-expanded="false"
+            >拍照检查</a>
+            <a
+                href="#"
+                id="open-wizard-panel"
+                class="panel-link"
+                aria-controls="wizard-panel"
+                aria-expanded="false"
+            >错题向导</a>
+            <a href="#" id="open-entry-panel" class="panel-link" aria-controls="entry-panel" aria-expanded="false">新的错题</a>
+            <a href="#" id="open-log-panel" class="panel-link" aria-controls="log-panel" aria-expanded="false">查看活动日志</a>
+        </nav>
     </header>
 
     <main class="layout" id="layout">
@@ -17,24 +37,6 @@
             <div class="panel-header">
                 <div class="panel-header__top">
                     <h2 id="entries-title">错题库</h2>
-                    <div class="panel-links">
-                        <a
-                            href="#"
-                            id="open-photo-check-panel"
-                            class="panel-link"
-                            aria-controls="photo-check-panel"
-                            aria-expanded="false"
-                        >拍照检查</a>
-                        <a
-                            href="#"
-                            id="open-wizard-panel"
-                            class="panel-link"
-                            aria-controls="wizard-panel"
-                            aria-expanded="false"
-                        >错题向导</a>
-                        <a href="#" id="open-entry-panel" class="panel-link" aria-controls="entry-panel" aria-expanded="false">新的错题</a>
-                        <a href="#" id="open-log-panel" class="panel-link" aria-controls="log-panel" aria-expanded="false">查看活动日志</a>
-                    </div>
                 </div>
                 <div class="filters">
                     <label>
