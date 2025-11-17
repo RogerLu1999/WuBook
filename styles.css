@@ -9,7 +9,12 @@
     --accent-soft: #eef2ff;
     --danger: #d92d20;
     --success: #15803d;
+    --sticky-header-offset: clamp(72px, 10vh, 120px);
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+html {
+    scroll-padding-top: calc(var(--sticky-header-offset) + 0.5rem);
 }
 
 * {
