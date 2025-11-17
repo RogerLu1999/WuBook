@@ -320,7 +320,7 @@ app.post('/api/formula-recognition', ocrUpload.single('image'), async (req, res)
     } catch (error) {
         console.error('Formula recognition failed', error);
         await logAction('formula-recognition', 'error', { message: error.message });
-        res.status(500).json({ error: error.message || '无法完成公式识别。' });
+        res.status(500).json({ error: error.message || '无法完成试卷识别。' });
     }
 });
 
@@ -681,14 +681,14 @@ async function recognizeFormulaWithQwen(buffer) {
     const base64Image = buffer.toString('base64');
 
     const systemPrompt =
-        '你是一位擅长数学 OCR 的 LaTeX 排版专家，需要把图片里的公式转换成可复制的电子排版。任何时候都请返回 JSON。';
-    const userPrompt = `请识别图片中的全部数学公式，并输出 JSON：
+        '你是一位擅长解析整张试卷的数学 OCR 专家，需要把整套题目转换成可复制的电子排版。任何时候都请返回 JSON。';
+    const userPrompt = `请识别整张试卷中的所有题目（包括编号、文字与公式），并输出 JSON：
 {
   "latex": "可直接用于 LaTeX/Word 的公式字符串",
   "mathml": "可选的 MathML 表达式",
-  "plainText": "便于理解或复制的线性公式"
+  "plainText": "便于理解或复制的线性表达"
 }
-如果图片里有多行公式，请用 \\n 分行，保留分数、根号、上下标等结构，勿添加额外说明。`;
+如果试卷里有多道题目，请保持原有题号顺序，用 \\n 分隔不同题目，保留分数、根号、上下标等结构，勿添加额外说明。`;
 
     const payload = {
         model,
@@ -745,7 +745,7 @@ async function recognizeFormulaWithQwen(buffer) {
 
     const normalized = normalizeFormulaRecognitionResult(parsed);
     if (!normalized.latex && !normalized.mathml && !normalized.plainText) {
-        throw new Error('Qwen 未能识别出可用的公式。');
+        throw new Error('Qwen 未能识别出可用的题目信息。');
     }
 
     return normalized;

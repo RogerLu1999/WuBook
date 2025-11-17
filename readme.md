@@ -6,7 +6,7 @@ Wu(悟)Book is a lightweight web application designed to help you capture, revie
 
 - 📚 **Structured entries** – Track subject, exercise title, description, reason, corrective notes, tags, and timestamps.
 - 🖼️ **Photo attachments** – Add snapshots of worksheets or physical activities, with an automatic print-friendly copy sized to 80% of A4 width.
-- 🧮 **公式识别** – Upload a formula photo and let Qwen convert it into LaTeX/MathML that can be copied into Word or screenshot for sharing.
+- 🧮 **试卷识别** – Upload a photographed test paper and let Qwen extract every problem (including complex formulas) into LaTeX/MathML you can paste into Word or capture for sharing.
 - 🔍 **Smart suggestions** – Find similar exercises with built-in text similarity (no external services required).
 - 🧭 **Powerful filters** – Search by keyword and filter by subject.
 - 💾 **File-based storage** – Entries and photos are stored on disk for easy backup.

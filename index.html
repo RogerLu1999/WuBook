@@ -28,7 +28,7 @@
                 class="panel-link"
                 aria-controls="formula-panel"
                 aria-expanded="false"
-            >公式识别</a>
+            >试卷识别</a>
             <a
                 href="#"
                 id="open-wizard-panel"
@@ -307,19 +307,19 @@
         <section class="panel" id="formula-panel" aria-labelledby="formula-title" hidden>
             <div class="panel-header">
                 <div class="panel-header__top">
-                    <h2 id="formula-title">公式识别</h2>
+                    <h2 id="formula-title">试卷识别</h2>
                     <a href="#" id="close-formula-panel" class="panel-link">返回错题列表</a>
                 </div>
-                <p>上传包含数学公式的清晰图片，AI 会返回可用于截图或粘贴到 Word 的电子排版。</p>
+                <p>上传整张卷子的翻拍照片，AI 会识别出其中的所有题目（含复杂公式）并返回可截图或粘贴的排版结果。</p>
             </div>
 
             <form id="formula-form" class="formula-form">
                 <label class="field formula-form__input">
-                    <span>包含公式的图片</span>
+                    <span>包含题目的整张试卷照片</span>
                     <input type="file" id="formula-image" name="image" accept="image/*" required />
-                    <small>支持单个公式或整段推导，建议使用光线均匀、背景简单的照片。</small>
+                    <small>支持整套试卷或多题拼页，建议使用光线均匀、背景简单的照片以便识别多道题目。</small>
                 </label>
-                <button type="submit" id="formula-submit" class="btn btn-primary formula-form__submit">识别公式</button>
+                <button type="submit" id="formula-submit" class="btn btn-primary formula-form__submit">识别试卷</button>
             </form>
 
             <p id="formula-status" class="formula-status" role="status" aria-live="polite"></p>
@@ -330,7 +330,7 @@
                         <h3>电子排版预览</h3>
                         <p>预览区域可直接截图，或复制下方文本插入 Word / LaTeX。</p>
                     </div>
-                    <div id="formula-render" class="formula-preview__canvas" aria-label="公式预览"></div>
+                    <div id="formula-render" class="formula-preview__canvas" aria-label="试卷识别结果预览"></div>
                 </div>
                 <div class="formula-result__fields">
                     <label class="field field--span-2">
@@ -342,7 +342,7 @@
                         <textarea id="formula-result-mathml" rows="4" readonly></textarea>
                     </label>
                     <label class="field field--span-2">
-                        <span>纯文本 / 线性公式</span>
+                        <span>纯文本 / 线性表达</span>
                         <textarea id="formula-result-plain" rows="3" readonly></textarea>
                     </label>
                 </div>

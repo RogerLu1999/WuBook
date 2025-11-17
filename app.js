@@ -312,7 +312,7 @@ formulaForm?.addEventListener('submit', async (event) => {
     formData.append('image', file);
 
     setFormulaProcessingState(true);
-    setFormulaStatus('正在上传图片并调用 AI 识别公式…');
+    setFormulaStatus('正在上传图片并调用 AI 识别试卷…');
     resetFormulaResult();
 
     try {
@@ -323,12 +323,12 @@ formulaForm?.addEventListener('submit', async (event) => {
 
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) {
-            throw new Error(payload?.error || '无法完成公式识别。');
+            throw new Error(payload?.error || '无法完成试卷识别。');
         }
 
         const normalized = normalizeFormulaResult(payload);
         if (!normalized.latex && !normalized.mathml && !normalized.plainText) {
-            throw new Error('未能在图片中找到可用的公式信息。');
+            throw new Error('未能在试卷中找到可用的题目信息。');
         }
 
         renderFormulaResult(normalized);
@@ -337,7 +337,7 @@ formulaForm?.addEventListener('submit', async (event) => {
     } catch (error) {
         console.error(error);
         resetFormulaResult();
-        setFormulaStatus(error?.message || '无法完成公式识别。', 'error');
+        setFormulaStatus(error?.message || '无法完成试卷识别。', 'error');
     } finally {
         setFormulaProcessingState(false);
     }
@@ -2143,7 +2143,7 @@ function setFormulaProcessingState(isProcessing) {
     if (isProcessing) {
         formulaSubmitButton.textContent = '识别中…';
     } else {
-        formulaSubmitButton.textContent = formulaSubmitButtonDefaultLabel || '识别公式';
+        formulaSubmitButton.textContent = formulaSubmitButtonDefaultLabel || '识别试卷';
     }
 }
 
