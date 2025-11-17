@@ -36,6 +36,14 @@ const state = {
             message: '',
             messageVariant: ''
         }
+    },
+    formulaRecognition: {
+        result: {
+            latex: '',
+            mathml: '',
+            plainText: ''
+        },
+        isProcessing: false
     }
 };
 
@@ -145,6 +153,21 @@ const closeLogPanelLink = document.getElementById('close-log-panel');
 const mathShortcutLink = document.getElementById('math-shortcut');
 const sourceHistoryList = document.getElementById('source-history');
 const questionTypeHistoryList = document.getElementById('question-type-history');
+const formulaPanel = document.getElementById('formula-panel');
+const openFormulaPanelLink = document.getElementById('open-formula-panel');
+const closeFormulaPanelLink = document.getElementById('close-formula-panel');
+const formulaForm = document.getElementById('formula-form');
+const formulaImageInput = document.getElementById('formula-image');
+const formulaSubmitButton = document.getElementById('formula-submit');
+const formulaStatusEl = document.getElementById('formula-status');
+const formulaResultSection = document.getElementById('formula-result');
+const formulaRender = document.getElementById('formula-render');
+const formulaLatexOutput = document.getElementById('formula-result-latex');
+const formulaMathmlOutput = document.getElementById('formula-result-mathml');
+const formulaPlainOutput = document.getElementById('formula-result-plain');
+const formulaCopyLatexBtn = document.getElementById('formula-copy-latex');
+const formulaCopyMathmlBtn = document.getElementById('formula-copy-mathml');
+const formulaSubmitButtonDefaultLabel = formulaSubmitButton ? formulaSubmitButton.textContent.trim() : '';
 
 const STORAGE_KEYS = {
     lastSubject: 'wubook:lastSubject',
@@ -257,6 +280,77 @@ openPhotoCheckPanelLink?.addEventListener('click', (event) => {
 closePhotoCheckPanelLink?.addEventListener('click', (event) => {
     event.preventDefault();
     hidePhotoCheckPanel();
+});
+
+openFormulaPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    showFormulaPanel();
+});
+
+closeFormulaPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    hideFormulaPanel();
+});
+
+formulaImageInput?.addEventListener('change', () => {
+    if (state.formulaRecognition.isProcessing) {
+        return;
+    }
+    setFormulaStatus('');
+});
+
+formulaForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const file = formulaImageInput?.files?.[0] || null;
+    if (!file) {
+        setFormulaStatus('请先选择需要识别的图片。', 'error');
+        formulaImageInput?.focus();
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setFormulaProcessingState(true);
+    setFormulaStatus('正在上传图片并调用 AI 识别公式…');
+    resetFormulaResult();
+
+    try {
+        const response = await fetch('/api/formula-recognition', {
+            method: 'POST',
+            body: formData
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload?.error || '无法完成公式识别。');
+        }
+
+        const normalized = normalizeFormulaResult(payload);
+        if (!normalized.latex && !normalized.mathml && !normalized.plainText) {
+            throw new Error('未能在图片中找到可用的公式信息。');
+        }
+
+        renderFormulaResult(normalized);
+        formulaForm.reset();
+        setFormulaStatus('识别完成，可截图或复制下方文本。', 'success');
+    } catch (error) {
+        console.error(error);
+        resetFormulaResult();
+        setFormulaStatus(error?.message || '无法完成公式识别。', 'error');
+    } finally {
+        setFormulaProcessingState(false);
+    }
+});
+
+formulaCopyLatexBtn?.addEventListener('click', () => {
+    const text = formulaLatexOutput?.value || '';
+    copyFormulaTextToClipboard(text, 'LaTeX');
+});
+
+formulaCopyMathmlBtn?.addEventListener('click', () => {
+    const text = formulaMathmlOutput?.value || '';
+    copyFormulaTextToClipboard(text, 'MathML');
 });
 
 photoCheckImageInput?.addEventListener('change', () => {
@@ -1901,7 +1995,7 @@ function restoreEntriesListPanelVisibility() {
     if (!entriesListPanel) {
         return;
     }
-    const hasActiveSecondaryPanel = [entryPanel, wizardPanel, photoCheckPanel, logPanel].some(
+    const hasActiveSecondaryPanel = [entryPanel, wizardPanel, photoCheckPanel, formulaPanel, logPanel].some(
         (panel) => panel && !panel.hidden
     );
     if (!hasActiveSecondaryPanel) {
@@ -1914,6 +2008,7 @@ function showPhotoCheckPanel() {
     hideEntriesListPanel();
     hideEntryPanel({ scroll: false, restoreEntries: false });
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
     const wasHidden = Boolean(photoCheckPanel.hidden);
     if (wasHidden) {
@@ -1945,6 +2040,42 @@ function hidePhotoCheckPanel(options = {}) {
     }
 }
 
+function showFormulaPanel() {
+    if (!formulaPanel) return;
+    hideEntriesListPanel();
+    hideEntryPanel({ scroll: false, restoreEntries: false });
+    hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideLogPanel({ scroll: false, restoreEntries: false });
+    const wasHidden = Boolean(formulaPanel.hidden);
+    if (wasHidden) {
+        formulaPanel.hidden = false;
+    }
+    openFormulaPanelLink?.setAttribute('aria-expanded', 'true');
+    formulaPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (wasHidden) {
+        formulaImageInput?.focus();
+    }
+}
+
+function hideFormulaPanel(options = {}) {
+    if (!formulaPanel) return;
+    const { scroll = true, reset = true, restoreEntries = true } = options;
+    openFormulaPanelLink?.setAttribute('aria-expanded', 'false');
+    if (!formulaPanel.hidden) {
+        formulaPanel.hidden = true;
+    }
+    if (reset) {
+        resetFormulaRecognition();
+    }
+    if (scroll !== false) {
+        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (restoreEntries) {
+        restoreEntriesListPanelVisibility();
+    }
+}
+
 function scrollPhotoCheckResultsIntoView() {
     if (!photoCheckResultsSection || photoCheckResultsSection.hidden) {
         return;
@@ -1959,6 +2090,199 @@ function resetPhotoCheckPanel() {
     setPhotoCheckStatus('');
     hidePhotoCheckProgress();
     setPhotoCheckButtonState(false);
+}
+
+function resetFormulaRecognition() {
+    formulaForm?.reset();
+    resetFormulaResult();
+    setFormulaStatus('');
+    setFormulaProcessingState(false);
+}
+
+function resetFormulaResult() {
+    state.formulaRecognition.result = {
+        latex: '',
+        mathml: '',
+        plainText: ''
+    };
+    if (formulaResultSection) {
+        formulaResultSection.hidden = true;
+    }
+    if (formulaRender) {
+        formulaRender.innerHTML = '';
+    }
+    if (formulaLatexOutput) {
+        formulaLatexOutput.value = '';
+    }
+    if (formulaMathmlOutput) {
+        formulaMathmlOutput.value = '';
+    }
+    if (formulaPlainOutput) {
+        formulaPlainOutput.value = '';
+    }
+}
+
+function setFormulaStatus(message, variant) {
+    if (!formulaStatusEl) return;
+    formulaStatusEl.textContent = message || '';
+    formulaStatusEl.classList.remove('is-error', 'is-success');
+    if (!variant) {
+        return;
+    }
+    if (variant === 'error') {
+        formulaStatusEl.classList.add('is-error');
+    } else if (variant === 'success') {
+        formulaStatusEl.classList.add('is-success');
+    }
+}
+
+function setFormulaProcessingState(isProcessing) {
+    state.formulaRecognition.isProcessing = Boolean(isProcessing);
+    if (!formulaSubmitButton) return;
+    formulaSubmitButton.disabled = Boolean(isProcessing);
+    if (isProcessing) {
+        formulaSubmitButton.textContent = '识别中…';
+    } else {
+        formulaSubmitButton.textContent = formulaSubmitButtonDefaultLabel || '识别公式';
+    }
+}
+
+function normalizeFormulaResult(raw) {
+    if (!raw) {
+        return {
+            latex: '',
+            mathml: '',
+            plainText: ''
+        };
+    }
+
+    if (typeof raw === 'string') {
+        const text = sanitizeFormulaText(raw);
+        return {
+            latex: text,
+            mathml: '',
+            plainText: text
+        };
+    }
+
+    const latexCandidates = [
+        raw.latex,
+        raw.latex_code,
+        raw.tex,
+        raw.LaTeX,
+        raw.formula,
+        raw.formulaLatex,
+        raw.expression,
+        raw.text
+    ];
+    const mathmlCandidates = [raw.mathml, raw.mathML, raw.math_ml];
+    const plainCandidates = [raw.plainText, raw.plain_text, raw.linear, raw.description, raw.readable, raw.caption];
+
+    const latex = latexCandidates.map(sanitizeFormulaText).find(Boolean) || '';
+    const mathml = mathmlCandidates.map(sanitizeFormulaText).find(Boolean) || '';
+    const plainText = plainCandidates.map(sanitizeFormulaText).find(Boolean) || '';
+
+    return { latex, mathml, plainText };
+}
+
+function sanitizeFormulaText(value) {
+    if (value == null) {
+        return '';
+    }
+    return String(value)
+        .replace(/```(?:json|latex|math)?/gi, '')
+        .replace(/```/g, '')
+        .replace(/^[^\S\r\n]+/gm, '')
+        .trim();
+}
+
+function renderFormulaResult(result) {
+    state.formulaRecognition.result = { ...result };
+    if (formulaResultSection) {
+        formulaResultSection.hidden = false;
+    }
+    if (formulaLatexOutput) {
+        formulaLatexOutput.value = result.latex || '';
+    }
+    if (formulaMathmlOutput) {
+        formulaMathmlOutput.value = result.mathml || '';
+    }
+    if (formulaPlainOutput) {
+        formulaPlainOutput.value = result.plainText || '';
+    }
+    renderFormulaPreview(result);
+}
+
+function renderFormulaPreview(result) {
+    if (!formulaRender) return;
+    formulaRender.innerHTML = '';
+
+    const latex = result.latex || '';
+    const mathml = result.mathml || '';
+    const plainText = result.plainText || '';
+
+    if (latex && window.katex && typeof window.katex.render === 'function') {
+        try {
+            window.katex.render(latex, formulaRender, {
+                throwOnError: false,
+                displayMode: true
+            });
+            return;
+        } catch (error) {
+            console.warn('KaTeX render failed', error);
+        }
+    }
+
+    if (mathml) {
+        const template = document.createElement('template');
+        template.innerHTML = mathml;
+        const mathElement = template.content.querySelector('math');
+        if (mathElement) {
+            formulaRender.appendChild(mathElement.cloneNode(true));
+            return;
+        }
+    }
+
+    const fallbackText = latex || plainText;
+    const pre = document.createElement('pre');
+    pre.textContent = fallbackText || '暂无可预览的内容。';
+    formulaRender.appendChild(pre);
+}
+
+async function copyFormulaTextToClipboard(text, label) {
+    if (!text) {
+        setFormulaStatus(`暂无可复制的 ${label} 内容。`, 'error');
+        return;
+    }
+
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            legacyCopyText(text);
+        }
+        setFormulaStatus(`${label} 已复制到剪贴板。`, 'success');
+    } catch (error) {
+        console.warn('Failed to copy formula text', error);
+        setFormulaStatus(`无法复制 ${label}，请手动选中后复制。`, 'error');
+    }
+}
+
+function legacyCopyText(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        document.execCommand('copy');
+    } catch (error) {
+        console.warn('execCommand copy failed', error);
+    } finally {
+        document.body.removeChild(textarea);
+    }
 }
 
 function setPhotoCheckStatus(message, variant) {
@@ -4590,6 +4914,7 @@ function showEntryPanel() {
     hideEntriesListPanel();
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
     const wasHidden = Boolean(entryPanel.hidden);
     if (wasHidden) {
@@ -4628,6 +4953,7 @@ function showWizardPanel() {
     hideEntriesListPanel();
     hideEntryPanel({ scroll: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
     const wasHidden = Boolean(wizardPanel.hidden);
     if (wasHidden) {
@@ -4844,6 +5170,7 @@ function showLogPanel() {
     hideEntryPanel({ scroll: false, restoreEntries: false });
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
     logPanel.hidden = false;
     openLogPanelLink?.setAttribute('aria-expanded', 'true');
     logPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });

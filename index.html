@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Wu(悟)Book - 错题本</title>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 </head>
 <body>
     <header class="app-header">
@@ -20,6 +22,13 @@
                 aria-controls="photo-check-panel"
                 aria-expanded="false"
             >拍照检查</a>
+            <a
+                href="#"
+                id="open-formula-panel"
+                class="panel-link"
+                aria-controls="formula-panel"
+                aria-expanded="false"
+            >公式识别</a>
             <a
                 href="#"
                 id="open-wizard-panel"
@@ -291,6 +300,55 @@
                 </div>
                 <div class="photo-check-results__content">
                     <div id="photo-check-report" class="photo-check-report"></div>
+                </div>
+            </section>
+        </section>
+
+        <section class="panel" id="formula-panel" aria-labelledby="formula-title" hidden>
+            <div class="panel-header">
+                <div class="panel-header__top">
+                    <h2 id="formula-title">公式识别</h2>
+                    <a href="#" id="close-formula-panel" class="panel-link">返回错题列表</a>
+                </div>
+                <p>上传包含数学公式的清晰图片，AI 会返回可用于截图或粘贴到 Word 的电子排版。</p>
+            </div>
+
+            <form id="formula-form" class="formula-form">
+                <label class="field formula-form__input">
+                    <span>包含公式的图片</span>
+                    <input type="file" id="formula-image" name="image" accept="image/*" required />
+                    <small>支持单个公式或整段推导，建议使用光线均匀、背景简单的照片。</small>
+                </label>
+                <button type="submit" id="formula-submit" class="btn btn-primary formula-form__submit">识别公式</button>
+            </form>
+
+            <p id="formula-status" class="formula-status" role="status" aria-live="polite"></p>
+
+            <section id="formula-result" class="formula-result" hidden aria-live="polite">
+                <div class="formula-preview">
+                    <div class="formula-preview__header">
+                        <h3>电子排版预览</h3>
+                        <p>预览区域可直接截图，或复制下方文本插入 Word / LaTeX。</p>
+                    </div>
+                    <div id="formula-render" class="formula-preview__canvas" aria-label="公式预览"></div>
+                </div>
+                <div class="formula-result__fields">
+                    <label class="field field--span-2">
+                        <span>LaTeX 代码</span>
+                        <textarea id="formula-result-latex" rows="4" readonly></textarea>
+                    </label>
+                    <label class="field field--span-2">
+                        <span>MathML（可选）</span>
+                        <textarea id="formula-result-mathml" rows="4" readonly></textarea>
+                    </label>
+                    <label class="field field--span-2">
+                        <span>纯文本 / 线性公式</span>
+                        <textarea id="formula-result-plain" rows="3" readonly></textarea>
+                    </label>
+                </div>
+                <div class="formula-result__actions">
+                    <button type="button" id="formula-copy-latex" class="btn btn-secondary btn-compact">复制 LaTeX</button>
+                    <button type="button" id="formula-copy-mathml" class="btn btn-secondary btn-compact">复制 MathML</button>
                 </div>
             </section>
         </section>
