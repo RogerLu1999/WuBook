@@ -60,6 +60,7 @@ const clearBtn = document.getElementById('clear-btn');
 const entriesContainer = document.getElementById('entries');
 const entriesTable = document.getElementById('entries-table');
 const entriesTableBody = entriesTable?.querySelector('tbody') || null;
+const entriesListPanel = document.getElementById('entries-panel');
 const statsEl = document.getElementById('stats');
 const searchInput = document.getElementById('search');
 const typeFilter = document.getElementById('type-filter');
@@ -1882,11 +1883,38 @@ function updatePaginationUI({ totalEntries, totalPages, page, pageSize, visibleC
     }
 }
 
+function hideEntriesListPanel() {
+    if (!entriesListPanel || entriesListPanel.hidden) {
+        return;
+    }
+    entriesListPanel.hidden = true;
+}
+
+function showEntriesListPanel() {
+    if (!entriesListPanel || !entriesListPanel.hidden) {
+        return;
+    }
+    entriesListPanel.hidden = false;
+}
+
+function restoreEntriesListPanelVisibility() {
+    if (!entriesListPanel) {
+        return;
+    }
+    const hasActiveSecondaryPanel = [entryPanel, wizardPanel, photoCheckPanel, logPanel].some(
+        (panel) => panel && !panel.hidden
+    );
+    if (!hasActiveSecondaryPanel) {
+        showEntriesListPanel();
+    }
+}
+
 function showPhotoCheckPanel() {
     if (!photoCheckPanel) return;
-    hideEntryPanel({ scroll: false });
-    hideWizardPanel({ scroll: false, reset: false });
-    hideLogPanel({ scroll: false });
+    hideEntriesListPanel();
+    hideEntryPanel({ scroll: false, restoreEntries: false });
+    hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideLogPanel({ scroll: false, restoreEntries: false });
     if (!photoCheckPanel.hidden) return;
     photoCheckPanel.hidden = false;
     openPhotoCheckPanelLink?.setAttribute('aria-expanded', 'true');
@@ -1897,7 +1925,7 @@ function showPhotoCheckPanel() {
 
 function hidePhotoCheckPanel(options = {}) {
     if (!photoCheckPanel) return;
-    const { scroll = true, reset = true } = options;
+    const { scroll = true, reset = true, restoreEntries = true } = options;
     openPhotoCheckPanelLink?.setAttribute('aria-expanded', 'false');
     if (!photoCheckPanel.hidden) {
         photoCheckPanel.hidden = true;
@@ -1907,6 +1935,9 @@ function hidePhotoCheckPanel(options = {}) {
     }
     if (scroll !== false) {
         document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (restoreEntries) {
+        restoreEntriesListPanelVisibility();
     }
 }
 
@@ -4552,8 +4583,10 @@ function parsePhotoCheckCorrectValue(value) {
 
 function showEntryPanel() {
     if (!entryPanel) return;
-    hideWizardPanel({ scroll: false, reset: false });
-    hidePhotoCheckPanel({ scroll: false, reset: false });
+    hideEntriesListPanel();
+    hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideLogPanel({ scroll: false, restoreEntries: false });
     if (!entryPanel.hidden) return;
     entryPanel.hidden = false;
     openEntryPanelLink?.setAttribute('aria-expanded', 'true');
@@ -4565,18 +4598,29 @@ function showEntryPanel() {
 
 function hideEntryPanel(options = {}) {
     if (!entryPanel) return;
+    const { scroll = true, restoreEntries = true } = options;
     openEntryPanelLink?.setAttribute('aria-expanded', 'false');
-    if (entryPanel.hidden) return;
+    if (entryPanel.hidden) {
+        if (restoreEntries) {
+            restoreEntriesListPanelVisibility();
+        }
+        return;
+    }
     entryPanel.hidden = true;
-    if (options.scroll !== false) {
+    if (scroll !== false) {
         document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (restoreEntries) {
+        restoreEntriesListPanelVisibility();
     }
 }
 
 function showWizardPanel() {
     if (!wizardPanel) return;
-    hideEntryPanel({ scroll: false });
-    hidePhotoCheckPanel({ scroll: false, reset: false });
+    hideEntriesListPanel();
+    hideEntryPanel({ scroll: false, restoreEntries: false });
+    hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideLogPanel({ scroll: false, restoreEntries: false });
     if (!wizardPanel.hidden) return;
     resetWizard();
     wizardPanel.hidden = false;
@@ -4587,7 +4631,7 @@ function showWizardPanel() {
 
 function hideWizardPanel(options = {}) {
     if (!wizardPanel) return;
-    const { scroll = true, reset = true } = options;
+    const { scroll = true, reset = true, restoreEntries = true } = options;
     openWizardPanelLink?.setAttribute('aria-expanded', 'false');
     if (!wizardPanel.hidden) {
         wizardPanel.hidden = true;
@@ -4597,6 +4641,9 @@ function hideWizardPanel(options = {}) {
     }
     if (scroll !== false) {
         document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (restoreEntries) {
+        restoreEntriesListPanelVisibility();
     }
 }
 
@@ -4781,7 +4828,10 @@ function cleanOcrText(text) {
 function showLogPanel() {
     if (!logPanel) return;
     if (!logPanel.hidden) return;
-    hidePhotoCheckPanel({ scroll: false, reset: false });
+    hideEntriesListPanel();
+    hideEntryPanel({ scroll: false, restoreEntries: false });
+    hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
     logPanel.hidden = false;
     openLogPanelLink?.setAttribute('aria-expanded', 'true');
     logPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -4790,11 +4840,20 @@ function showLogPanel() {
 
 function hideLogPanel(options = {}) {
     if (!logPanel) return;
+    const { scroll = true, restoreEntries = true } = options;
     openLogPanelLink?.setAttribute('aria-expanded', 'false');
-    if (logPanel.hidden) return;
+    if (logPanel.hidden) {
+        if (restoreEntries) {
+            restoreEntriesListPanelVisibility();
+        }
+        return;
+    }
     logPanel.hidden = true;
-    if (options.scroll !== false) {
+    if (scroll !== false) {
         document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (restoreEntries) {
+        restoreEntriesListPanelVisibility();
     }
 }
 
