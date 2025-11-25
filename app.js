@@ -50,6 +50,32 @@ const state = {
 const MIN_IMAGE_ZOOM = 30;
 const MAX_IMAGE_ZOOM = 120;
 const DEFAULT_IMAGE_ZOOM = 100;
+const ALLOWED_RICH_TEXT_TAGS = new Set([
+    'b',
+    'strong',
+    'i',
+    'em',
+    'u',
+    'sup',
+    'sub',
+    'ul',
+    'ol',
+    'li',
+    'p',
+    'div',
+    'br',
+    'span',
+    'code'
+]);
+
+const RICH_TEXT_FORMULA_DELIMITERS = [
+    { left: '$$', right: '$$', display: true },
+    { left: '$', right: '$', display: false },
+    { left: '\\(', right: '\\)', display: false },
+    { left: '\\[', right: '\\]', display: true }
+];
+
+const richTextEditors = new Map();
 
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' });
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -171,6 +197,157 @@ const formulaCopyLatexBtn = document.getElementById('formula-copy-latex');
 const formulaCopyMathmlBtn = document.getElementById('formula-copy-mathml');
 const formulaSubmitButtonDefaultLabel = formulaSubmitButton ? formulaSubmitButton.textContent.trim() : '';
 
+function sanitizeRichTextHtml(value) {
+    if (!value) return '';
+    const template = document.createElement('template');
+    template.innerHTML = value;
+
+    const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT, null);
+    const toRemove = [];
+
+    while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (!node || node.nodeType !== Node.ELEMENT_NODE) continue;
+        const tag = node.tagName?.toLowerCase();
+        if (!ALLOWED_RICH_TEXT_TAGS.has(tag)) {
+            toRemove.push(node);
+        } else {
+            const attributes = Array.from(node.attributes || []);
+            for (const attr of attributes) {
+                node.removeAttribute(attr.name);
+            }
+        }
+    }
+
+    toRemove.forEach((node) => {
+        if (node.parentNode) {
+            while (node.firstChild) {
+                node.parentNode.insertBefore(node.firstChild, node);
+            }
+            node.parentNode.removeChild(node);
+        }
+    });
+
+    return template.innerHTML.trim();
+}
+
+function richTextToPlainText(html) {
+    if (!html) return '';
+    const normalized = sanitizeRichTextHtml(html);
+    const replaced = normalized
+        .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+        .replace(/<\/(p|div)>/gi, '\n')
+        .replace(/<\s*li\s*>/gi, '\n• ')
+        .replace(/<\/(ul|ol)>/gi, '\n');
+    const temp = document.createElement('template');
+    temp.innerHTML = replaced;
+    return temp.content.textContent || '';
+}
+
+function isRichTextEmpty(html) {
+    const text = richTextToPlainText(html).trim();
+    return text.length === 0;
+}
+
+function renderMathInContainer(container) {
+    if (!container || typeof window.renderMathInElement !== 'function') return;
+    try {
+        window.renderMathInElement(container, {
+            delimiters: RICH_TEXT_FORMULA_DELIMITERS,
+            throwOnError: false
+        });
+    } catch (error) {
+        console.warn('Failed to render math', error);
+    }
+}
+
+function renderRichTextContent(element, html) {
+    if (!element) return;
+    const safe = sanitizeRichTextHtml(html);
+    element.innerHTML = safe;
+    renderMathInContainer(element);
+}
+
+function syncRichTextInput(editor, input) {
+    if (!editor || !input) return;
+    const safe = sanitizeRichTextHtml(editor.innerHTML);
+    input.value = safe;
+    renderMathInContainer(editor);
+}
+
+function setRichTextValue(inputId, value) {
+    const editorEntry = richTextEditors.get(inputId);
+    if (!editorEntry) return;
+    const safe = sanitizeRichTextHtml(value);
+    editorEntry.editor.innerHTML = safe;
+    editorEntry.input.value = safe;
+    renderMathInContainer(editorEntry.editor);
+}
+
+function getRichTextValue(inputId) {
+    const editorEntry = richTextEditors.get(inputId);
+    if (!editorEntry) return '';
+    const value = editorEntry.input.value || editorEntry.editor.innerHTML;
+    return sanitizeRichTextHtml(value);
+}
+
+function focusRichTextEditor(inputId) {
+    const editorEntry = richTextEditors.get(inputId);
+    if (!editorEntry) return;
+    editorEntry.editor.focus();
+}
+
+function syncAllRichTextInputs() {
+    richTextEditors.forEach(({ editor, input }) => {
+        syncRichTextInput(editor, input);
+    });
+}
+
+function initRichTextEditors() {
+    const wrappers = document.querySelectorAll('[data-rich-text]');
+    wrappers.forEach((wrapper) => {
+        const editor = wrapper.querySelector('.rich-text__editor');
+        const inputId = editor?.dataset?.input;
+        const input = inputId ? document.getElementById(inputId) : null;
+        if (!editor || !input || richTextEditors.has(inputId)) return;
+        const toolbar = wrapper.querySelector('.rich-text__toolbar');
+
+        const handleCommand = (command) => {
+            if (!command) return;
+            if (command === 'insertFormula') {
+                const formula = prompt('输入 LaTeX 公式内容，不包含美元符号：', 'x^2+y^2');
+                if (formula !== null) {
+                    document.execCommand('insertText', false, `$${formula}$`);
+                }
+            } else {
+                document.execCommand(command, false, null);
+            }
+            syncRichTextInput(editor, input);
+            editor.focus();
+        };
+
+        toolbar?.addEventListener('click', (event) => {
+            const button = event.target.closest('button[data-command]');
+            if (!button) return;
+            event.preventDefault();
+            handleCommand(button.dataset.command);
+        });
+
+        editor.addEventListener('input', () => syncRichTextInput(editor, input));
+        editor.addEventListener('blur', () => syncRichTextInput(editor, input));
+        editor.addEventListener('paste', (event) => {
+            event.preventDefault();
+            const text = (event.clipboardData || window.clipboardData).getData('text');
+            document.execCommand('insertText', false, text);
+        });
+
+        const initialValue = sanitizeRichTextHtml(input.value || '');
+        editor.innerHTML = initialValue;
+        input.value = initialValue;
+        richTextEditors.set(inputId, { editor, input });
+    });
+}
+
 const STORAGE_KEYS = {
     lastSubject: 'wubook:lastSubject',
     sourceHistory: 'wubook:sourceHistory',
@@ -197,6 +374,7 @@ let wizardRecognizedText = '';
 setCreatedAtDefaultValue();
 setDefaultSubjectAndSemester();
 updateEntryFormSuggestions();
+initRichTextEditors();
 hideEntryPanel({ scroll: false });
 hideWizardPanel({ scroll: false });
 hidePhotoCheckPanel({ scroll: false });
@@ -206,11 +384,14 @@ init();
 
 entryForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    syncAllRichTextInputs();
     const saved = await submitEntry(new FormData(entryForm));
     if (!saved) return;
     entryForm.reset();
     setCreatedAtDefaultValue();
     setDefaultSubjectAndSemester();
+    setRichTextValue('question-text', '');
+    setRichTextValue('answer-text', '');
     hideEntryPanel();
     document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
@@ -590,12 +771,15 @@ wizardForm?.addEventListener('submit', async (event) => {
         wizardOriginalInput?.focus();
         return;
     }
+    syncAllRichTextInputs();
     const formData = new FormData(wizardForm);
     formData.set('originalImage', wizardOriginalFile);
     const saved = await submitEntry(formData);
     if (!saved) return;
     setDefaultSubjectAndSemester();
     setCreatedAtDefaultValue();
+    setRichTextValue('wizard-question-text', '');
+    setRichTextValue('wizard-answer-text', '');
     hideWizardPanel();
     document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
@@ -611,13 +795,12 @@ async function submitEntry(formData) {
     }
 
     const normalize = (value) => (value ?? '').toString().trim();
-
     const source = normalize(formData.get('source'));
     const subject = normalize(formData.get('subject'));
     const semester = normalize(formData.get('semester'));
     const questionType = normalize(formData.get('questionType'));
-    const questionText = normalize(formData.get('questionText'));
-    const answerText = normalize(formData.get('answerText'));
+    const questionText = sanitizeRichTextHtml(formData.get('questionText'));
+    const answerText = sanitizeRichTextHtml(formData.get('answerText'));
     const remark = normalize(formData.get('remark'));
     const errorReason = normalize(formData.get('errorReason'));
     const questionImage = formData.get('questionImage');
@@ -628,12 +811,12 @@ async function submitEntry(formData) {
     const hasAnswerImage = answerImage instanceof File && answerImage.size > 0;
     const hasOriginalImage = originalImage instanceof File && originalImage.size > 0;
 
-    if (!questionText && !hasQuestionImage) {
+    if (isRichTextEmpty(questionText) && !hasQuestionImage) {
         alert('请填写题目文字或上传题目图片。');
         return null;
     }
 
-    if (!answerText && !hasAnswerImage) {
+    if (isRichTextEmpty(answerText) && !hasAnswerImage) {
         alert('请填写答案文字或上传答案图片。');
         return null;
     }
@@ -919,8 +1102,9 @@ editDialog.addEventListener('close', async () => {
     const questionType = document.getElementById('edit-question-type').value.trim();
     const createdAt = document.getElementById('edit-created-at').value || entry.createdAt;
     const errorReason = document.getElementById('edit-error-reason').value.trim();
-    const questionText = document.getElementById('edit-question-text').value.trim();
-    const answerText = document.getElementById('edit-answer-text').value.trim();
+    syncAllRichTextInputs();
+    const questionText = getRichTextValue('edit-question-text');
+    const answerText = getRichTextValue('edit-answer-text');
     const remark = document.getElementById('edit-remark').value.trim();
     const questionImageFile = editQuestionImageInput?.files?.[0] || null;
     const answerImageFile = editAnswerImageInput?.files?.[0] || null;
@@ -1063,7 +1247,7 @@ function renderEntries() {
         const summaryTextEl = summaryRow.querySelector('.entry-summary-text');
         const summaryImageEl = summaryRow.querySelector('.entry-summary-image');
         const summaryImage = summaryImageEl?.querySelector('img');
-        const normalizedQuestion = (entry.questionText || '').replace(/\s+/g, ' ').trim();
+        const normalizedQuestion = richTextToPlainText(entry.questionText || '').replace(/\s+/g, ' ').trim();
 
         const codeCell = summaryRow.querySelector('.entry-cell--code');
         if (codeCell) {
@@ -1247,9 +1431,9 @@ function renderEntries() {
         const similarSection = detailRow.querySelector('.entry-similar');
         const similarList = similarSection?.querySelector('ul');
 
-        const hasQuestionText = Boolean(entry.questionText);
+        const hasQuestionText = !isRichTextEmpty(entry.questionText);
         if (questionTextEl) {
-            questionTextEl.textContent = entry.questionText || '';
+            renderRichTextContent(questionTextEl, entry.questionText || '');
             questionTextEl.hidden = !hasQuestionText;
         }
         if (questionFigure) {
@@ -1286,9 +1470,9 @@ function renderEntries() {
             questionSection.hidden = !hasQuestionText && !hasQuestionImage;
         }
 
-        const hasAnswerText = Boolean(entry.answerText);
+        const hasAnswerText = !isRichTextEmpty(entry.answerText);
         if (answerTextEl) {
-            answerTextEl.textContent = entry.answerText || '';
+            renderRichTextContent(answerTextEl, entry.answerText || '');
             answerTextEl.hidden = !hasAnswerText;
         }
         if (answerFigure) {
@@ -1809,8 +1993,8 @@ function filteredEntries() {
                 entry.semester,
                 entry.source,
                 entry.questionCode,
-                entry.questionText,
-                entry.answerText,
+                richTextToPlainText(entry.questionText),
+                richTextToPlainText(entry.answerText),
                 entry.errorReason,
                 entry.summary,
                 entry.remark
@@ -5029,8 +5213,8 @@ function prepareWizardDetailsStepFromFile(file, { focusQuestion = false } = {}) 
     }
     applyWizardDefaults();
     showWizardStep('details');
-    if (focusQuestion && wizardQuestionTextInput) {
-        wizardQuestionTextInput.focus();
+    if (focusQuestion) {
+        focusRichTextEditor('wizard-question-text');
     }
 }
 
@@ -5041,6 +5225,8 @@ function resetWizard() {
     if (wizardForm) {
         wizardForm.reset();
     }
+    setRichTextValue('wizard-question-text', '');
+    setRichTextValue('wizard-answer-text', '');
     wizardOriginalFile = null;
     if (wizardOriginalPreviewUrl) {
         URL.revokeObjectURL(wizardOriginalPreviewUrl);
@@ -5151,10 +5337,10 @@ function setWizardOcrButtonState(loading, label) {
 }
 
 function applyWizardRecognizedText({ replaceExisting = false } = {}) {
-    if (!wizardQuestionTextInput) return;
     if (!wizardRecognizedText) return;
-    if (!replaceExisting && wizardQuestionTextInput.value) return;
-    wizardQuestionTextInput.value = wizardRecognizedText;
+    const currentValue = getRichTextValue('wizard-question-text');
+    if (!replaceExisting && !isRichTextEmpty(currentValue)) return;
+    setRichTextValue('wizard-question-text', wizardRecognizedText);
 }
 
 function cleanOcrText(text) {
@@ -5234,8 +5420,8 @@ function openEditDialog(entry) {
     document.getElementById('edit-question-type').value = entry.questionType || '';
     document.getElementById('edit-created-at').value = toDateInputValue(entry.createdAt);
     document.getElementById('edit-error-reason').value = entry.errorReason || '';
-    document.getElementById('edit-question-text').value = entry.questionText || '';
-    document.getElementById('edit-answer-text').value = entry.answerText || '';
+    setRichTextValue('edit-question-text', entry.questionText || '');
+    setRichTextValue('edit-answer-text', entry.answerText || '');
     document.getElementById('edit-remark').value = entry.remark || '';
     if (editQuestionImageInput) {
         editQuestionImageInput.value = '';
@@ -5584,7 +5770,7 @@ function normalizeEntry(raw) {
     const originalImageUrl = raw.originalImageUrl || null;
     const originalImageResizedUrl = raw.originalImageResizedUrl || null;
     const originalPreview = originalImageResizedUrl || originalImageUrl;
-    const questionText = raw.questionText || raw.description || raw.title || '';
+    const questionText = sanitizeRichTextHtml(raw.questionText || raw.description || raw.title || '');
     const summary = typeof raw.summary === 'string' ? raw.summary.trim() : '';
     const remark = typeof raw.remark === 'string' ? raw.remark.trim() : '';
     return {
@@ -5623,7 +5809,7 @@ function normalizeEntry(raw) {
 }
 
 function computeQuestionSummary(text, hasImage) {
-    const normalized = (text || '').replace(/\s+/g, ' ').trim();
+    const normalized = richTextToPlainText(text || '').replace(/\s+/g, ' ').trim();
     if (normalized) {
         const chars = Array.from(normalized);
         const limit = 20;

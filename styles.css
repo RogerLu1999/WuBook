@@ -1156,6 +1156,53 @@ body {
     color: var(--text-muted);
 }
 
+.rich-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.rich-text__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.rich-text__editor {
+    min-height: 120px;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background-color: rgba(255, 255, 255, 0.9);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+    line-height: 1.5;
+    overflow-y: auto;
+}
+
+.rich-text__editor:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.rich-text__hint {
+    color: var(--text-muted);
+}
+
+.rich-text__input {
+    display: none;
+}
+
+.rich-text--rendered p,
+.rich-text--rendered div {
+    margin: 0.25rem 0;
+}
+
+.rich-text--rendered ul,
+.rich-text--rendered ol {
+    padding-left: 1.25rem;
+    margin: 0.25rem 0;
+}
+
 .field--span-2 {
     grid-column: span 2;
 }
@@ -1221,6 +1268,17 @@ select:focus {
 .btn-secondary {
     background: var(--accent-soft);
     color: var(--accent);
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+}
+
+.btn-ghost:hover {
+    color: var(--text);
+    border-color: var(--accent);
 }
 
 .btn-danger {

@@ -27,6 +27,23 @@ const LOG_FILE = path.join(DATA_DIR, 'activity.log');
 const PHOTO_CHECK_DIR = path.join(DATA_DIR, 'photo-check');
 const PHOTO_CHECK_RECORDS_DIR = path.join(PHOTO_CHECK_DIR, 'records');
 const PHOTO_CHECK_HISTORY_FILE = path.join(PHOTO_CHECK_DIR, 'history.json');
+const ALLOWED_RICH_TEXT_TAGS = new Set([
+    'b',
+    'strong',
+    'i',
+    'em',
+    'u',
+    'sup',
+    'sub',
+    'ul',
+    'ol',
+    'li',
+    'p',
+    'div',
+    'br',
+    'span',
+    'code'
+]);
 
 const MM_PER_INCH = 25.4;
 const A4_WIDTH_MM = 210;
@@ -2479,8 +2496,8 @@ async function buildEntry(body, files = {}, options = {}) {
         subject: (body.subject || '').trim(),
         semester: (body.semester || '').trim(),
         questionType: (body.questionType || '').trim(),
-        questionText: (body.questionText || '').trim(),
-        answerText: (body.answerText || '').trim(),
+        questionText: sanitizeRichText(body.questionText || ''),
+        answerText: sanitizeRichText(body.answerText || ''),
         errorReason: (body.errorReason || '').trim(),
         remark: (body.remark || '').trim(),
         summary: typeof body.summary === 'string' ? body.summary.trim() : '',
@@ -2497,11 +2514,11 @@ async function buildEntry(body, files = {}, options = {}) {
         updatedAt: now
     };
 
-    if (!entry.questionText && !hasQuestionImageInput) {
+    if (!hasRichTextContent(entry.questionText) && !hasQuestionImageInput) {
         throw new Error('题目内容需要文字或图片。');
     }
 
-    if (!entry.answerText && !hasAnswerImageInput) {
+    if (!hasRichTextContent(entry.answerText) && !hasAnswerImageInput) {
         throw new Error('答案内容需要文字或图片。');
     }
 
@@ -3111,7 +3128,7 @@ function validateEntryContent(entry) {
 }
 
 function generateQuestionSummary(questionText, hasImage) {
-    const text = typeof questionText === 'string' ? questionText : '';
+    const text = richTextToPlainText(typeof questionText === 'string' ? questionText : '');
     const normalized = text.replace(/\s+/g, ' ').trim();
     if (normalized) {
         const chars = Array.from(normalized);
@@ -3209,7 +3226,7 @@ async function createWordExport(entries) {
         metaParts.push(`创建日期：${formatDateOnly(entry.createdAt)}`);
         children.push(new Paragraph(`【${metaParts.join(' | ')}】`));
 
-        const hasQuestionText = Boolean(entry.questionText && entry.questionText.trim());
+        const hasQuestionText = hasRichTextContent(entry.questionText);
         if (hasQuestionText) {
             const questionTextParagraph = createLabeledParagraph('题目内容（文字）：', entry.questionText);
             if (questionTextParagraph) {
@@ -3286,7 +3303,7 @@ async function createPaperExport(entries) {
             })
         );
 
-        const hasQuestionText = Boolean(entry.questionText && entry.questionText.trim());
+        const hasQuestionText = hasRichTextContent(entry.questionText);
         if (hasQuestionText) {
             const questionParagraph = createPlainParagraph(entry.questionText, {
                 skipWhenEmpty: false,
@@ -3390,7 +3407,7 @@ async function loadImageForDoc(doc, url, options = {}) {
 
 function createLabeledParagraph(label, text, options = {}) {
     const { skipWhenEmpty = false, fallback = '（未填写）' } = options;
-    const value = typeof text === 'string' ? text.trim() : '';
+    const value = richTextToPlainText(text);
     if (!value && skipWhenEmpty) {
         return null;
     }
@@ -3419,7 +3436,7 @@ function createPlainParagraph(text, options = {}) {
         font = null,
         paragraphSpacing = null
     } = options;
-    const value = typeof text === 'string' ? text.trim() : '';
+    const value = richTextToPlainText(text);
     if (!value && skipWhenEmpty) {
         return null;
     }
@@ -3576,6 +3593,39 @@ function getExtensionFromMime(mime) {
         default:
             return '';
     }
+}
+
+function sanitizeRichText(value) {
+    if (!value) return '';
+    let cleaned = String(value);
+    cleaned = cleaned.replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '');
+    cleaned = cleaned.replace(/on\w+\s*=\s*"[^"]*"/gi, '');
+    cleaned = cleaned.replace(/on\w+\s*=\s*'[^']*'/gi, '');
+    cleaned = cleaned.replace(/on\w+\s*=\s*[^\s>]+/gi, '');
+    cleaned = cleaned.replace(/<\s*\/??\s*([a-z0-9-]+)([^>]*)>/gi, (match, tag) => {
+        const normalizedTag = tag.toLowerCase();
+        if (!ALLOWED_RICH_TEXT_TAGS.has(normalizedTag)) {
+            return '';
+        }
+        const isClosing = /^<\s*\//.test(match);
+        return isClosing ? `</${normalizedTag}>` : `<${normalizedTag}>`;
+    });
+    return cleaned.trim();
+}
+
+function richTextToPlainText(html) {
+    if (!html) return '';
+    const safe = sanitizeRichText(html);
+    const replaced = safe
+        .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+        .replace(/<\/(p|div)>/gi, '\n')
+        .replace(/<\s*li\s*>/gi, '\n• ')
+        .replace(/<\/(ul|ol)>/gi, '\n');
+    return replaced.replace(/<[^>]+>/g, '').replace(/\n{2,}/g, '\n').trim();
+}
+
+function hasRichTextContent(html) {
+    return richTextToPlainText(html).trim().length > 0;
 }
 
 async function logAction(action, status, details = {}) {

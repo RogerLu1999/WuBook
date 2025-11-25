@@ -7,6 +7,10 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script
+        defer
+        src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body)"></script>
 </head>
 <body>
     <header class="app-header">
@@ -195,7 +199,27 @@
                 </label>
                 <label class="field field--span-2">
                     <span>题目内容（文字）</span>
-                    <textarea id="question-text" name="questionText" rows="3" placeholder="输入题干文本"></textarea>
+                    <div class="rich-text" data-rich-text>
+                        <div class="rich-text__toolbar" aria-label="题目文本工具栏" role="group">
+                            <button type="button" data-command="bold" class="btn btn-ghost">加粗</button>
+                            <button type="button" data-command="italic" class="btn btn-ghost">斜体</button>
+                            <button type="button" data-command="underline" class="btn btn-ghost">下划线</button>
+                            <button type="button" data-command="superscript" class="btn btn-ghost">上标</button>
+                            <button type="button" data-command="subscript" class="btn btn-ghost">下标</button>
+                            <button type="button" data-command="insertUnorderedList" class="btn btn-ghost">• 列表</button>
+                            <button type="button" data-command="insertOrderedList" class="btn btn-ghost">1. 列表</button>
+                            <button type="button" data-command="insertFormula" class="btn btn-ghost">插入公式</button>
+                            <button type="button" data-command="removeFormat" class="btn btn-ghost">清除样式</button>
+                        </div>
+                        <div
+                            class="rich-text__editor"
+                            contenteditable="true"
+                            aria-label="题目内容（文字）"
+                            data-input="question-text"
+                        ></div>
+                        <textarea id="question-text" name="questionText" class="rich-text__input" hidden></textarea>
+                    </div>
+                    <small class="rich-text__hint">支持富文本和 LaTeX 公式，使用 $...$ 或 $$...$$ 包裹。</small>
                 </label>
                 <label class="field">
                     <span>题目图片</span>
@@ -204,7 +228,27 @@
                 </label>
                 <label class="field field--span-2">
                     <span>答案（文字）</span>
-                    <textarea id="answer-text" name="answerText" rows="3" placeholder="输入正确答案或解析"></textarea>
+                    <div class="rich-text" data-rich-text>
+                        <div class="rich-text__toolbar" aria-label="答案文本工具栏" role="group">
+                            <button type="button" data-command="bold" class="btn btn-ghost">加粗</button>
+                            <button type="button" data-command="italic" class="btn btn-ghost">斜体</button>
+                            <button type="button" data-command="underline" class="btn btn-ghost">下划线</button>
+                            <button type="button" data-command="superscript" class="btn btn-ghost">上标</button>
+                            <button type="button" data-command="subscript" class="btn btn-ghost">下标</button>
+                            <button type="button" data-command="insertUnorderedList" class="btn btn-ghost">• 列表</button>
+                            <button type="button" data-command="insertOrderedList" class="btn btn-ghost">1. 列表</button>
+                            <button type="button" data-command="insertFormula" class="btn btn-ghost">插入公式</button>
+                            <button type="button" data-command="removeFormat" class="btn btn-ghost">清除样式</button>
+                        </div>
+                        <div
+                            class="rich-text__editor"
+                            contenteditable="true"
+                            aria-label="答案（文字）"
+                            data-input="answer-text"
+                        ></div>
+                        <textarea id="answer-text" name="answerText" class="rich-text__input" hidden></textarea>
+                    </div>
+                    <small class="rich-text__hint">支持富文本和 LaTeX 公式，使用 $...$ 或 $$...$$ 包裹。</small>
                 </label>
                 <label class="field">
                     <span>答案图片</span>
@@ -397,7 +441,32 @@
                     <form id="wizard-form" class="form-grid">
                         <label class="field field--span-2">
                             <span>题目内容（文字）</span>
-                            <textarea id="wizard-question-text" name="questionText" rows="3" placeholder="输入题干文本"></textarea>
+                            <div class="rich-text" data-rich-text>
+                                <div class="rich-text__toolbar" aria-label="题目文本工具栏" role="group">
+                                    <button type="button" data-command="bold" class="btn btn-ghost">加粗</button>
+                                    <button type="button" data-command="italic" class="btn btn-ghost">斜体</button>
+                                    <button type="button" data-command="underline" class="btn btn-ghost">下划线</button>
+                                    <button type="button" data-command="superscript" class="btn btn-ghost">上标</button>
+                                    <button type="button" data-command="subscript" class="btn btn-ghost">下标</button>
+                                    <button type="button" data-command="insertUnorderedList" class="btn btn-ghost">• 列表</button>
+                                    <button type="button" data-command="insertOrderedList" class="btn btn-ghost">1. 列表</button>
+                                    <button type="button" data-command="insertFormula" class="btn btn-ghost">插入公式</button>
+                                    <button type="button" data-command="removeFormat" class="btn btn-ghost">清除样式</button>
+                                </div>
+                                <div
+                                    class="rich-text__editor"
+                                    contenteditable="true"
+                                    aria-label="题目内容（文字）"
+                                    data-input="wizard-question-text"
+                                ></div>
+                                <textarea
+                                    id="wizard-question-text"
+                                    name="questionText"
+                                    class="rich-text__input"
+                                    hidden
+                                ></textarea>
+                            </div>
+                            <small class="rich-text__hint">支持富文本和 LaTeX 公式，使用 $...$ 或 $$...$$ 包裹。</small>
                         </label>
                         <label class="field field--span-2">
                             <span>题目图片</span>
@@ -406,7 +475,32 @@
                         </label>
                         <label class="field field--span-2">
                             <span>答案（文字）</span>
-                            <textarea id="wizard-answer-text" name="answerText" rows="3" placeholder="输入正确答案或解析"></textarea>
+                            <div class="rich-text" data-rich-text>
+                                <div class="rich-text__toolbar" aria-label="答案文本工具栏" role="group">
+                                    <button type="button" data-command="bold" class="btn btn-ghost">加粗</button>
+                                    <button type="button" data-command="italic" class="btn btn-ghost">斜体</button>
+                                    <button type="button" data-command="underline" class="btn btn-ghost">下划线</button>
+                                    <button type="button" data-command="superscript" class="btn btn-ghost">上标</button>
+                                    <button type="button" data-command="subscript" class="btn btn-ghost">下标</button>
+                                    <button type="button" data-command="insertUnorderedList" class="btn btn-ghost">• 列表</button>
+                                    <button type="button" data-command="insertOrderedList" class="btn btn-ghost">1. 列表</button>
+                                    <button type="button" data-command="insertFormula" class="btn btn-ghost">插入公式</button>
+                                    <button type="button" data-command="removeFormat" class="btn btn-ghost">清除样式</button>
+                                </div>
+                                <div
+                                    class="rich-text__editor"
+                                    contenteditable="true"
+                                    aria-label="答案（文字）"
+                                    data-input="wizard-answer-text"
+                                ></div>
+                                <textarea
+                                    id="wizard-answer-text"
+                                    name="answerText"
+                                    class="rich-text__input"
+                                    hidden
+                                ></textarea>
+                            </div>
+                            <small class="rich-text__hint">支持富文本和 LaTeX 公式，使用 $...$ 或 $$...$$ 包裹。</small>
                         </label>
                         <label class="field field--span-2">
                             <span>答案图片</span>
@@ -512,7 +606,7 @@
                     <div class="entry-detail__content">
                         <section class="entry-section entry-section--question">
                             <h4>题目</h4>
-                            <p class="entry-question-text"></p>
+                            <div class="entry-question-text rich-text--rendered"></div>
                             <figure class="entry-question-image"></figure>
                             <div class="entry-image-zoom entry-image-zoom--question" hidden>
                                 <label>
@@ -531,7 +625,7 @@
                         </section>
                         <section class="entry-section entry-section--answer">
                             <h4>答案</h4>
-                            <p class="entry-answer-text"></p>
+                            <div class="entry-answer-text rich-text--rendered"></div>
                             <figure class="entry-answer-image"></figure>
                         </section>
                         <section class="entry-section entry-section--original" hidden>
@@ -606,7 +700,27 @@
             </label>
             <label class="field field--span-2">
                 <span>题目内容（文字）</span>
-                <textarea id="edit-question-text" rows="3"></textarea>
+                <div class="rich-text" data-rich-text>
+                    <div class="rich-text__toolbar" aria-label="题目文本工具栏" role="group">
+                        <button type="button" data-command="bold" class="btn btn-ghost">加粗</button>
+                        <button type="button" data-command="italic" class="btn btn-ghost">斜体</button>
+                        <button type="button" data-command="underline" class="btn btn-ghost">下划线</button>
+                        <button type="button" data-command="superscript" class="btn btn-ghost">上标</button>
+                        <button type="button" data-command="subscript" class="btn btn-ghost">下标</button>
+                        <button type="button" data-command="insertUnorderedList" class="btn btn-ghost">• 列表</button>
+                        <button type="button" data-command="insertOrderedList" class="btn btn-ghost">1. 列表</button>
+                        <button type="button" data-command="insertFormula" class="btn btn-ghost">插入公式</button>
+                        <button type="button" data-command="removeFormat" class="btn btn-ghost">清除样式</button>
+                    </div>
+                    <div
+                        class="rich-text__editor"
+                        contenteditable="true"
+                        aria-label="题目内容（文字）"
+                        data-input="edit-question-text"
+                    ></div>
+                    <textarea id="edit-question-text" class="rich-text__input" hidden></textarea>
+                </div>
+                <small class="rich-text__hint">支持富文本和 LaTeX 公式，使用 $...$ 或 $$...$$ 包裹。</small>
             </label>
             <label class="field field--span-2">
                 <span>答案图片</span>
@@ -614,7 +728,27 @@
             </label>
             <label class="field field--span-2">
                 <span>答案（文字）</span>
-                <textarea id="edit-answer-text" rows="3"></textarea>
+                <div class="rich-text" data-rich-text>
+                    <div class="rich-text__toolbar" aria-label="答案文本工具栏" role="group">
+                        <button type="button" data-command="bold" class="btn btn-ghost">加粗</button>
+                        <button type="button" data-command="italic" class="btn btn-ghost">斜体</button>
+                        <button type="button" data-command="underline" class="btn btn-ghost">下划线</button>
+                        <button type="button" data-command="superscript" class="btn btn-ghost">上标</button>
+                        <button type="button" data-command="subscript" class="btn btn-ghost">下标</button>
+                        <button type="button" data-command="insertUnorderedList" class="btn btn-ghost">• 列表</button>
+                        <button type="button" data-command="insertOrderedList" class="btn btn-ghost">1. 列表</button>
+                        <button type="button" data-command="insertFormula" class="btn btn-ghost">插入公式</button>
+                        <button type="button" data-command="removeFormat" class="btn btn-ghost">清除样式</button>
+                    </div>
+                    <div
+                        class="rich-text__editor"
+                        contenteditable="true"
+                        aria-label="答案（文字）"
+                        data-input="edit-answer-text"
+                    ></div>
+                    <textarea id="edit-answer-text" class="rich-text__input" hidden></textarea>
+                </div>
+                <small class="rich-text__hint">支持富文本和 LaTeX 公式，使用 $...$ 或 $$...$$ 包裹。</small>
             </label>
             <menu class="dialog-actions">
                 <button value="cancel" class="btn">Cancel</button>
