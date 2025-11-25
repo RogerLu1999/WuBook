@@ -90,6 +90,7 @@ const entryForm = document.getElementById('entry-form');
 const importInput = document.getElementById('import-input');
 const exportBtn = document.getElementById('export-btn');
 const exportPaperBtn = document.getElementById('export-paper-btn');
+const paperModeToggle = document.getElementById('paper-mode-questions-only');
 const clearBtn = document.getElementById('clear-btn');
 const entriesContainer = document.getElementById('entries');
 const entriesTable = document.getElementById('entries-table');
@@ -351,7 +352,8 @@ function initRichTextEditors() {
 const STORAGE_KEYS = {
     lastSubject: 'wubook:lastSubject',
     sourceHistory: 'wubook:sourceHistory',
-    questionTypeHistory: 'wubook:questionTypeHistory'
+    questionTypeHistory: 'wubook:questionTypeHistory',
+    paperExportMode: 'wubook:paperExportMode'
 };
 
 const LOCAL_STORAGE_AVAILABLE = (() => {
@@ -361,6 +363,19 @@ const LOCAL_STORAGE_AVAILABLE = (() => {
         return false;
     }
 })();
+
+const PAPER_EXPORT_MODES = {
+    DETAILED: 'detailed',
+    QUESTION_ONLY: 'question-only'
+};
+
+let paperExportMode = getSavedPaperExportMode();
+syncPaperExportModeToggle();
+
+paperModeToggle?.addEventListener('change', () => {
+    const mode = paperModeToggle.checked ? PAPER_EXPORT_MODES.QUESTION_ONLY : PAPER_EXPORT_MODES.DETAILED;
+    setPaperExportMode(mode);
+});
 
 let exportInProgress = null;
 
@@ -883,7 +898,8 @@ exportPaperBtn?.addEventListener('click', async () => {
         type: 'paper',
         endpoint: '/api/entries/export-paper',
         fallbackName: `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`,
-        errorMessage: 'Failed to export paper.'
+        errorMessage: 'Failed to export paper.',
+        payload: () => ({ mode: paperExportMode })
     });
 });
 
@@ -1909,6 +1925,46 @@ function getLastSubject() {
     }
 }
 
+function setPaperExportMode(mode) {
+    const normalized = Object.values(PAPER_EXPORT_MODES).includes(mode) ? mode : PAPER_EXPORT_MODES.DETAILED;
+    paperExportMode = normalized;
+    syncPaperExportModeToggle();
+
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return;
+    }
+
+    try {
+        window.localStorage.setItem(STORAGE_KEYS.paperExportMode, normalized);
+    } catch (error) {
+        console.warn('Unable to persist paper export mode.', error);
+    }
+}
+
+function getSavedPaperExportMode() {
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return PAPER_EXPORT_MODES.DETAILED;
+    }
+
+    try {
+        const stored = (window.localStorage.getItem(STORAGE_KEYS.paperExportMode) || '').toString().trim();
+        if (Object.values(PAPER_EXPORT_MODES).includes(stored)) {
+            return stored;
+        }
+    } catch (error) {
+        console.warn('Unable to read paper export mode.', error);
+    }
+
+    return PAPER_EXPORT_MODES.DETAILED;
+}
+
+function syncPaperExportModeToggle() {
+    if (!paperModeToggle) {
+        return;
+    }
+    paperModeToggle.checked = paperExportMode === PAPER_EXPORT_MODES.QUESTION_ONLY;
+}
+
 function rememberHistoryValue(storageKey, value) {
     const normalized = (value ?? '').toString().trim();
     if (!normalized || !LOCAL_STORAGE_AVAILABLE) {
@@ -2016,6 +2072,23 @@ function pruneSelection() {
     }
 }
 
+function normalizeExportPayload(payload) {
+    if (!payload) {
+        return {};
+    }
+
+    try {
+        const result = typeof payload === 'function' ? payload() : payload;
+        if (result && typeof result === 'object' && !Array.isArray(result)) {
+            return result;
+        }
+    } catch (error) {
+        console.warn('Failed to build export payload.', error);
+    }
+
+    return {};
+}
+
 function syncSelectionToDom() {
     if (!entriesTableBody) return;
     const rows = entriesTableBody.querySelectorAll('.entry-row');
@@ -2031,7 +2104,7 @@ function syncSelectionToDom() {
 }
 
 async function exportSelection(options) {
-    const { type, endpoint, fallbackName, errorMessage } = options;
+    const { type, endpoint, fallbackName, errorMessage, payload } = options;
     if (!state.selectedIds.size || exportInProgress) {
         if (!state.selectedIds.size && !exportInProgress) {
             alert('请先选择题目后再导出。');
@@ -2048,7 +2121,10 @@ async function exportSelection(options) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ ids: Array.from(state.selectedIds) })
+            body: JSON.stringify({
+                ids: Array.from(state.selectedIds),
+                ...normalizeExportPayload(payload)
+            })
         });
 
         if (!response.ok) {
