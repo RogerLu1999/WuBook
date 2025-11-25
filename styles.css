@@ -155,6 +155,15 @@ body {
     align-items: center;
 }
 
+.entries-toolbar__option {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    user-select: none;
+}
+
 .panel-header__top {
     display: flex;
     align-items: baseline;

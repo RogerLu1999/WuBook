@@ -2438,7 +2438,8 @@ app.post('/api/entries/export-paper', async (req, res) => {
             return res.status(404).json({ error: 'Selected entries were not found.' });
         }
 
-        const { buffer: docBuffer, updatedEntryIds } = await createPaperExport(selectedEntries);
+        const mode = req.body?.mode === 'question-only' ? 'question-only' : 'detailed';
+        const { buffer: docBuffer, updatedEntryIds } = await createPaperExport(selectedEntries, { mode });
         const filename = `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`;
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
@@ -3269,11 +3270,12 @@ async function createWordExport(entries) {
     return Packer.toBuffer(doc);
 }
 
-async function createPaperExport(entries) {
+async function createPaperExport(entries, options = {}) {
     if (!Array.isArray(entries) || !entries.length) {
         throw new Error('No entries to export');
     }
 
+    const mode = options.mode === 'question-only' ? 'question-only' : 'detailed';
     const doc = new Document({ sections: [] });
     const children = [];
     const updatedEntryIds = new Set();
@@ -3288,20 +3290,22 @@ async function createPaperExport(entries) {
             );
         }
 
-        const metaParts = [];
-        if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
-        if (entry.subject) metaParts.push(entry.subject);
-        if (entry.semester) metaParts.push(entry.semester);
-        if (entry.questionType) metaParts.push(entry.questionType);
-        if (entry.source) metaParts.push(`来源：${entry.source}`);
-        metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
-        const metaText = `【${metaParts.join(' / ')}】`;
-        children.push(
-            new Paragraph({
-                children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
-                spacing: { after: 200 }
-            })
-        );
+        if (mode !== 'question-only') {
+            const metaParts = [];
+            if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
+            if (entry.subject) metaParts.push(entry.subject);
+            if (entry.semester) metaParts.push(entry.semester);
+            if (entry.questionType) metaParts.push(entry.questionType);
+            if (entry.source) metaParts.push(`来源：${entry.source}`);
+            metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
+            const metaText = `【${metaParts.join(' / ')}】`;
+            children.push(
+                new Paragraph({
+                    children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
+                    spacing: { after: 200 }
+                })
+            );
+        }
 
         const hasQuestionText = hasRichTextContent(entry.questionText);
         if (hasQuestionText) {
