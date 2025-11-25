@@ -61,6 +61,46 @@ const MAX_IMAGE_SCALE = 1.2;
 const DEFAULT_IMAGE_SCALE = 1;
 const PAPER_IMAGE_BASE_WIDTH = 520;
 const PHOTO_CHECK_CROP_PADDING = 16;
+const SUPERSCRIPT_MAP = new Map([
+    ['0', '⁰'],
+    ['1', '¹'],
+    ['2', '²'],
+    ['3', '³'],
+    ['4', '⁴'],
+    ['5', '⁵'],
+    ['6', '⁶'],
+    ['7', '⁷'],
+    ['8', '⁸'],
+    ['9', '⁹'],
+    ['+', '⁺'],
+    ['-', '⁻'],
+    ['=', '⁼'],
+    ['(', '⁽'],
+    [')', '⁾'],
+    ['x', 'ˣ'],
+    ['y', 'ʸ'],
+    ['n', 'ⁿ']
+]);
+const SUBSCRIPT_MAP = new Map([
+    ['0', '₀'],
+    ['1', '₁'],
+    ['2', '₂'],
+    ['3', '₃'],
+    ['4', '₄'],
+    ['5', '₅'],
+    ['6', '₆'],
+    ['7', '₇'],
+    ['8', '₈'],
+    ['9', '₉'],
+    ['+', '₊'],
+    ['-', '₋'],
+    ['=', '₌'],
+    ['(', '₍'],
+    [')', '₎'],
+    ['x', 'ₓ'],
+    ['y', 'ᵧ'],
+    ['n', 'ₙ']
+]);
 
 const SUBJECT_PREFIX_MAP = new Map([
     ['数学', 'M'],
@@ -3405,9 +3445,40 @@ async function loadImageForDoc(doc, url, options = {}) {
     }
 }
 
+function replaceWithScript(text, pattern, map) {
+    return text.replace(pattern, (match, grouped, simple) => {
+        const content = (grouped || simple || '').trim();
+        if (!content) return '';
+        let transformed = '';
+        for (const char of content) {
+            transformed += map.get(char) || char;
+        }
+        return transformed;
+    });
+}
+
+function normalizeMathText(text) {
+    if (!text) return '';
+    let normalized = text;
+    normalized = normalized.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
+    normalized = normalized.replace(/\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/g, '($1)/($2)');
+    normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√($1)');
+    normalized = normalized.replace(/\\cdot/g, '·');
+    normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
+    normalized = replaceWithScript(normalized, /_\{([^}]+)\}|_(\S)/g, SUBSCRIPT_MAP);
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+    return normalized;
+}
+
+function richTextToDocxText(html) {
+    const plain = richTextToPlainText(html);
+    if (!plain) return '';
+    return normalizeMathText(plain);
+}
+
 function createLabeledParagraph(label, text, options = {}) {
     const { skipWhenEmpty = false, fallback = '（未填写）' } = options;
-    const value = richTextToPlainText(text);
+    const value = richTextToDocxText(text);
     if (!value && skipWhenEmpty) {
         return null;
     }
@@ -3436,7 +3507,7 @@ function createPlainParagraph(text, options = {}) {
         font = null,
         paragraphSpacing = null
     } = options;
-    const value = richTextToPlainText(text);
+    const value = richTextToDocxText(text);
     if (!value && skipWhenEmpty) {
         return null;
     }

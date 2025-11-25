@@ -1581,6 +1581,7 @@ function toggleEntryDetails(id, triggerButton) {
     if (willShow) {
         const targetRow = summaryRow || detailRow;
         targetRow?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        renderMathInContainer(detailRow);
     }
 }
 
