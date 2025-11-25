@@ -251,7 +251,7 @@ function isRichTextEmpty(html) {
 }
 
 function renderMathInContainer(container) {
-    if (!container || typeof window.renderMathInElement !== 'function') return;
+    if (!container || container.isContentEditable || typeof window.renderMathInElement !== 'function') return;
     try {
         window.renderMathInElement(container, {
             delimiters: RICH_TEXT_FORMULA_DELIMITERS,
