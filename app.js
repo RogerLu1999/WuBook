@@ -84,6 +84,8 @@ const semesterSelect = document.getElementById('semester');
 const entryTemplate = document.getElementById('entry-template');
 const editDialog = document.getElementById('edit-dialog');
 const editForm = document.getElementById('edit-form');
+const editQuestionImageInput = document.getElementById('edit-question-image');
+const editAnswerImageInput = document.getElementById('edit-answer-image');
 const confirmClearDialog = document.getElementById('confirm-clear');
 const logList = document.getElementById('activity-log');
 const refreshLogBtn = document.getElementById('refresh-log-btn');
@@ -904,63 +906,74 @@ editForm.addEventListener('close', () => {
     // This event doesn't fire on dialog forms in all browsers. Handled by dialog close.
 });
 
-editDialog.addEventListener('close', () => {
+editDialog.addEventListener('close', async () => {
     if (editDialog.returnValue !== 'confirm') return;
 
     const id = document.getElementById('edit-id').value;
     const entry = state.entries.find((item) => item.id === id);
     if (!entry) return;
 
-    const payload = {
-        source: document.getElementById('edit-source').value.trim(),
-        subject: document.getElementById('edit-subject').value.trim(),
-        semester: document.getElementById('edit-semester').value.trim(),
-        questionType: document.getElementById('edit-question-type').value.trim(),
-        createdAt: document.getElementById('edit-created-at').value,
-        errorReason: document.getElementById('edit-error-reason').value.trim(),
-        questionText: document.getElementById('edit-question-text').value.trim(),
-        answerText: document.getElementById('edit-answer-text').value.trim(),
-        remark: document.getElementById('edit-remark').value.trim()
-    };
+    const source = document.getElementById('edit-source').value.trim();
+    const subject = document.getElementById('edit-subject').value.trim();
+    const semester = document.getElementById('edit-semester').value.trim();
+    const questionType = document.getElementById('edit-question-type').value.trim();
+    const createdAt = document.getElementById('edit-created-at').value || entry.createdAt;
+    const errorReason = document.getElementById('edit-error-reason').value.trim();
+    const questionText = document.getElementById('edit-question-text').value.trim();
+    const answerText = document.getElementById('edit-answer-text').value.trim();
+    const remark = document.getElementById('edit-remark').value.trim();
+    const questionImageFile = editQuestionImageInput?.files?.[0] || null;
+    const answerImageFile = editAnswerImageInput?.files?.[0] || null;
 
-    if (!payload.createdAt) {
-        payload.createdAt = entry.createdAt;
-    }
-
-    if (!payload.questionText && !entry.questionImageUrl) {
+    if (!questionText && !questionImageFile && !entry.questionImageUrl) {
         alert('题目需要文字或图片内容。');
         return;
     }
 
-    if (!payload.answerText && !entry.answerImageUrl) {
+    if (!answerText && !answerImageFile && !entry.answerImageUrl) {
         alert('答案需要文字或图片内容。');
         return;
     }
 
-    fetch(`/api/entries/${id}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-    })
-        .then((response) => {
-            if (!response.ok) throw new Error('Failed to update');
-            return response.json();
-        })
-        .then((updated) => {
-            const index = state.entries.findIndex((item) => item.id === updated.id);
-            if (index !== -1) {
-                state.entries[index] = normalizeEntry(updated);
-                render();
-                loadActivityLog();
-            }
-        })
-        .catch((error) => {
-            console.error(error);
-            alert('Unable to update entry.');
-            loadActivityLog();
+    const formData = new FormData();
+    formData.set('source', source);
+    formData.set('subject', subject);
+    formData.set('semester', semester);
+    formData.set('questionType', questionType);
+    formData.set('createdAt', createdAt);
+    formData.set('errorReason', errorReason);
+    formData.set('questionText', questionText);
+    formData.set('answerText', answerText);
+    formData.set('remark', remark);
+
+    if (questionImageFile) {
+        formData.set('questionImage', questionImageFile);
+    }
+
+    if (answerImageFile) {
+        formData.set('answerImage', answerImageFile);
+    }
+
+    try {
+        const response = await fetch(`/api/entries/${id}`, {
+            method: 'PUT',
+            body: formData
         });
+
+        if (!response.ok) throw new Error('Failed to update');
+
+        const updated = await response.json();
+        const index = state.entries.findIndex((item) => item.id === updated.id);
+        if (index !== -1) {
+            state.entries[index] = normalizeEntry(updated);
+            render();
+            loadActivityLog();
+        }
+    } catch (error) {
+        console.error(error);
+        alert('Unable to update entry.');
+        loadActivityLog();
+    }
 });
 
 refreshLogBtn?.addEventListener('click', () => {
@@ -5224,6 +5237,12 @@ function openEditDialog(entry) {
     document.getElementById('edit-question-text').value = entry.questionText || '';
     document.getElementById('edit-answer-text').value = entry.answerText || '';
     document.getElementById('edit-remark').value = entry.remark || '';
+    if (editQuestionImageInput) {
+        editQuestionImageInput.value = '';
+    }
+    if (editAnswerImageInput) {
+        editAnswerImageInput.value = '';
+    }
 
     editDialog.showModal();
 }
