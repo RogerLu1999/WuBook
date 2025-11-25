@@ -2118,58 +2118,93 @@ function parsePhotoCheckBoolean(value) {
     return null;
 }
 
-app.put('/api/entries/:id', async (req, res) => {
-    try {
-        const entries = await readEntries();
-        const index = entries.findIndex((entry) => entry.id === req.params.id);
-        if (index === -1) {
-            await logAction('update-entry', 'error', {
-                id: req.params.id,
-                message: 'Entry not found'
+app.put(
+    '/api/entries/:id',
+    upload.fields([
+        { name: 'questionImage', maxCount: 1 },
+        { name: 'answerImage', maxCount: 1 }
+    ]),
+    async (req, res) => {
+        try {
+            const entries = await readEntries();
+            const index = entries.findIndex((entry) => entry.id === req.params.id);
+            if (index === -1) {
+                await logAction('update-entry', 'error', {
+                    id: req.params.id,
+                    message: 'Entry not found'
+                });
+                return res.status(404).json({ error: 'Entry not found' });
+            }
+
+            const existingEntry = entries[index];
+            const questionFile = Array.isArray(req.files?.questionImage) ? req.files.questionImage[0] : null;
+            const answerFile = Array.isArray(req.files?.answerImage) ? req.files.answerImage[0] : null;
+
+            const updatedEntry = {
+                ...existingEntry,
+                source: (req.body.source || '').trim(),
+                subject: (req.body.subject || '').trim(),
+                semester: (req.body.semester || '').trim(),
+                questionType: (req.body.questionType || '').trim(),
+                questionText: (req.body.questionText || '').trim(),
+                answerText: (req.body.answerText || '').trim(),
+                errorReason: (req.body.errorReason || '').trim(),
+                remark: (req.body.remark || '').trim(),
+                createdAt: normalizeDateInput(req.body.createdAt, existingEntry.createdAt),
+                updatedAt: new Date().toISOString()
+            };
+
+            if (questionFile) {
+                const filePath = questionFile.path || path.join(UPLOADS_DIR, questionFile.filename);
+                const photoInfo = await finalizePhotoStorage(filePath, questionFile.filename);
+                await removeMedia(existingEntry.questionImageUrl, existingEntry.questionImageResizedUrl);
+                updatedEntry.questionImageUrl = photoInfo.photoUrl;
+                updatedEntry.questionImageResizedUrl = photoInfo.photoResizedUrl;
+                const questionScale = parseScale(photoInfo.photoScale);
+                if (questionScale !== null) {
+                    updatedEntry.questionImageScale = questionScale;
+                }
+            }
+
+            if (answerFile) {
+                const filePath = answerFile.path || path.join(UPLOADS_DIR, answerFile.filename);
+                const photoInfo = await finalizePhotoStorage(filePath, answerFile.filename);
+                await removeMedia(existingEntry.answerImageUrl, existingEntry.answerImageResizedUrl);
+                updatedEntry.answerImageUrl = photoInfo.photoUrl;
+                updatedEntry.answerImageResizedUrl = photoInfo.photoResizedUrl;
+                const answerScale = parseScale(photoInfo.photoScale);
+                if (answerScale !== null) {
+                    updatedEntry.answerImageScale = answerScale;
+                }
+            }
+
+            validateEntryContent(updatedEntry);
+            updatedEntry.summary = generateQuestionSummary(
+                updatedEntry.questionText,
+                Boolean(updatedEntry.questionImageUrl || updatedEntry.questionImageResizedUrl)
+            );
+
+            assignQuestionCode(updatedEntry, entries.filter((_, itemIndex) => itemIndex !== index));
+
+            entries[index] = updatedEntry;
+
+            await writeEntries(entries);
+            await logAction('update-entry', 'success', {
+                id: entries[index].id,
+                questionCode: entries[index].questionCode,
+                subject: entries[index].subject,
+                semester: entries[index].semester,
+                questionType: entries[index].questionType,
+                source: entries[index].source
             });
-            return res.status(404).json({ error: 'Entry not found' });
+            res.json(entries[index]);
+        } catch (error) {
+            console.error(error);
+            await logAction('update-entry', 'error', { message: error.message });
+            res.status(500).json({ error: 'Failed to update entry' });
         }
-
-        const updatedEntry = {
-            ...entries[index],
-            source: (req.body.source || '').trim(),
-            subject: (req.body.subject || '').trim(),
-            semester: (req.body.semester || '').trim(),
-            questionType: (req.body.questionType || '').trim(),
-            questionText: (req.body.questionText || '').trim(),
-            answerText: (req.body.answerText || '').trim(),
-            errorReason: (req.body.errorReason || '').trim(),
-            remark: (req.body.remark || '').trim(),
-            createdAt: normalizeDateInput(req.body.createdAt, entries[index].createdAt),
-            updatedAt: new Date().toISOString()
-        };
-
-        validateEntryContent(updatedEntry);
-        updatedEntry.summary = generateQuestionSummary(
-            updatedEntry.questionText,
-            Boolean(updatedEntry.questionImageUrl || updatedEntry.questionImageResizedUrl)
-        );
-
-        assignQuestionCode(updatedEntry, entries.filter((_, itemIndex) => itemIndex !== index));
-
-        entries[index] = updatedEntry;
-
-        await writeEntries(entries);
-        await logAction('update-entry', 'success', {
-            id: entries[index].id,
-            questionCode: entries[index].questionCode,
-            subject: entries[index].subject,
-            semester: entries[index].semester,
-            questionType: entries[index].questionType,
-            source: entries[index].source
-        });
-        res.json(entries[index]);
-    } catch (error) {
-        console.error(error);
-        await logAction('update-entry', 'error', { message: error.message });
-        res.status(500).json({ error: 'Failed to update entry' });
     }
-});
+);
 
 app.patch('/api/entries/:id/question-image-scale', async (req, res) => {
     try {
