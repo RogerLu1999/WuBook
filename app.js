@@ -4340,33 +4340,56 @@ function createPhotoCheckProblemRow(batch, row, attemptOrder, attemptMetadata) {
 
     grid.appendChild(createPhotoCheckImageColumn(row, normalizedOrder, attemptMetadata));
 
-    const solutionAttempts = normalizedOrder.filter((attemptIndex) => attemptIndex !== 1);
-    const firstSolutionIndex = solutionAttempts[0] ?? null;
-    const secondSolutionIndex = solutionAttempts[1] ?? null;
+    const providers = [
+        { key: 'qwen', heading: 'Qwen 结果', preferLatest: true },
+        { key: 'kimi', heading: 'Kimi 结果' },
+        { key: 'openai', heading: 'OpenAI 结果' }
+    ];
 
-    grid.appendChild(
-        createPhotoCheckAttemptColumn(
-            row.attempts.get(firstSolutionIndex) || null,
-            firstSolutionIndex,
+    providers.forEach((provider) => {
+        const attemptIndex = findPhotoCheckAttemptIndexByProvider(
+            provider.key,
             attemptMetadata,
+            normalizedOrder,
             {
-                position: 1
+                preferLatest: provider.preferLatest
             }
-        )
-    );
+        );
 
-    grid.appendChild(
-        createPhotoCheckAttemptColumn(
-            row.attempts.get(secondSolutionIndex) || null,
-            secondSolutionIndex,
-            attemptMetadata,
-            {
-                position: 2
-            }
-        )
-    );
+        grid.appendChild(
+            createPhotoCheckAttemptColumn(
+                attemptIndex != null ? row.attempts.get(attemptIndex) || null : null,
+                attemptIndex,
+                attemptMetadata,
+                {
+                    heading: provider.heading,
+                    provider: provider.key
+                }
+            )
+        );
+    });
 
     return item;
+}
+
+function findPhotoCheckAttemptIndexByProvider(provider, attemptMetadata, attemptOrder, options = {}) {
+    const normalizedProvider = normalizePhotoCheckProviderName(provider);
+    if (!normalizedProvider) {
+        return null;
+    }
+
+    const normalizedOrder = Array.isArray(attemptOrder) ? attemptOrder.slice() : [];
+    const searchOrder = options.preferLatest ? normalizedOrder.slice().reverse() : normalizedOrder;
+
+    for (const attemptIndex of searchOrder) {
+        const metadata = attemptMetadata instanceof Map ? attemptMetadata.get(attemptIndex) : null;
+        const metadataProvider = normalizePhotoCheckProviderName(metadata?.provider);
+        if (metadataProvider === normalizedProvider) {
+            return attemptIndex;
+        }
+    }
+
+    return null;
 }
 
 function createPhotoCheckImageColumn(row, attemptOrder, attemptMetadata) {
@@ -4378,7 +4401,7 @@ function createPhotoCheckImageColumn(row, attemptOrder, attemptMetadata) {
     heading.className = 'photo-check-report__attempt-title';
     const imageSource = findPhotoCheckProblemImage(row, attemptOrder);
     const labelIndex = imageSource?.attemptIndex ?? (Array.isArray(attemptOrder) ? attemptOrder[0] : null);
-    heading.textContent = `题目截图${buildPhotoCheckAttemptLabel(labelIndex, attemptMetadata)}`;
+    heading.textContent = `原题图片${buildPhotoCheckAttemptLabel(labelIndex, attemptMetadata)}`;
     column.appendChild(heading);
 
     if (imageSource) {
@@ -4447,11 +4470,17 @@ function createPhotoCheckAttemptColumn(problem, attemptIndex, attemptMetadata, o
     if (attemptIndex != null) {
         column.dataset.attempt = String(attemptIndex);
     }
+    if (typeof options.provider === 'string' && options.provider.trim()) {
+        column.dataset.provider = options.provider.trim();
+    }
 
     const heading = document.createElement('h4');
     heading.className = 'photo-check-report__attempt-title';
+    const customHeading = typeof options.heading === 'string' && options.heading.trim() ? options.heading.trim() : null;
     const position = Number(options.position);
-    if (position === 1) {
+    if (customHeading) {
+        heading.textContent = `${customHeading}${buildPhotoCheckAttemptLabel(attemptIndex, attemptMetadata)}`;
+    } else if (position === 1) {
         if (Number.isFinite(Number(attemptIndex)) && attemptIndex > 0) {
             heading.textContent = `第一次解题${buildPhotoCheckAttemptLabel(attemptIndex, attemptMetadata)}`;
         } else {
