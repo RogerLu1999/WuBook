@@ -361,6 +361,7 @@ const STORAGE_KEYS = {
 };
 
 const SUBJECT_BASE_OPTIONS = ['数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理', '政治', '科学'];
+const QUESTION_TYPE_BASE_OPTIONS = ['选择题', '填空题', '解答题', '应用题', '判断题', '证明题', '作图题'];
 
 const LOCAL_STORAGE_AVAILABLE = (() => {
     try {
@@ -1820,7 +1821,9 @@ function renderStats() {
 }
 
 function populateFilterOptions() {
-    populateSelect(typeFilter, state.entries.map((entry) => entry.questionType), 'type');
+    const questionTypes = state.entries.map((entry) => entry.questionType);
+    questionTypes.push(...QUESTION_TYPE_BASE_OPTIONS);
+    populateSelect(typeFilter, questionTypes, 'type');
     const subjects = state.entries.map((entry) => entry.subject);
     subjects.push('数学');
     populateSelect(subjectFilter, subjects, 'subject');
@@ -1872,16 +1875,19 @@ function updateEntryFormSuggestions() {
         )
     );
     updateDatalistOptions(subjectOptionsList, getSubjectSuggestionValues());
-    updateDatalistOptions(
-        questionTypeHistoryList,
-        getHistoryValues(STORAGE_KEYS.questionTypeHistory, state.entries.map((entry) => entry.questionType))
-    );
+    updateDatalistOptions(questionTypeHistoryList, getQuestionTypeSuggestionValues());
 }
 
 function getSubjectSuggestionValues() {
     const subjectsFromEntries = state.entries.map((entry) => entry.subject);
     const history = getHistoryValues(STORAGE_KEYS.subjectHistory, subjectsFromEntries);
     return [...SUBJECT_BASE_OPTIONS, ...history];
+}
+
+function getQuestionTypeSuggestionValues() {
+    const typesFromEntries = state.entries.map((entry) => entry.questionType);
+    const history = getHistoryValues(STORAGE_KEYS.questionTypeHistory, typesFromEntries);
+    return [...QUESTION_TYPE_BASE_OPTIONS, ...history];
 }
 
 function updateDatalistOptions(datalist, values) {
@@ -5899,7 +5905,7 @@ function normalizeEntry(raw) {
         source: raw.source || '',
         subject: raw.subject || '',
         semester: raw.semester || '',
-        questionType: raw.questionType || raw.subject || '',
+        questionType: raw.questionType || raw.type || '',
         questionText,
         answerText: raw.answerText || raw.comments || '',
         errorReason: raw.errorReason || raw.reason || '',
