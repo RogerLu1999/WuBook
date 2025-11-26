@@ -21,6 +21,15 @@ Wu(悟)Book is a lightweight web application designed to help you capture, revie
 - macOS, Windows, or Linux with permission to write to the repository folder (the app saves data to disk).
 - No extra native dependencies are required. The OCR feature relies on the Qwen multimodal API—set the `DASHSCOPE_API_KEY` environment variable to enable cloud recognition without installing additional libraries.
 
+### AI API configuration
+
+Photo check uses multiple large-model providers in sequence:
+
+- **Vision/OCR** – Qwen (`DASHSCOPE_API_KEY`, optional `QWEN_VL_MODEL`).
+- **Text review** – Kimi (`KIMI_API_KEY`, optional `MOONSHOT_QA_MODEL`), OpenAI (`OPENAI_API_KEY`, optional `OPENAI_API_BASE`, `OPENAI_QA_MODEL`, `OPENAI_TIMEOUT_MS`), and Qwen (`DASHSCOPE_API_KEY`, optional `QWEN_QA_MODEL`).
+
+Only the providers with configured keys will be invoked, and timeouts/dns failures will surface as user-friendly errors in the UI.
+
 ### Run the app locally
 
 1. Download or clone this repository.

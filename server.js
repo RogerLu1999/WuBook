@@ -1551,12 +1551,10 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
         throw new Error('缺少 OpenAI API Key 配置。');
     }
 
-    if (typeof fetch !== 'function') {
-        throw new Error('当前运行环境不支持向 OpenAI 发起请求。');
-    }
-
-    const endpoint = 'https://api.openai.com/v1/chat/completions';
-    const model = 'gpt-5';
+    const baseUrl = String(process.env.OPENAI_API_BASE || 'https://api.openai.com/v1').replace(/\/$/, '');
+    const endpoint = `${baseUrl}/chat/completions`;
+    const model = process.env.OPENAI_QA_MODEL || 'gpt-4o-mini';
+    const timeoutMs = toFiniteNumber(process.env.OPENAI_TIMEOUT_MS) || 20000;
 
     const systemPrompt =
         '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
@@ -1571,24 +1569,40 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
         temperature: 0
     };
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload)
-    });
+    let requestResult;
+    try {
+        requestResult = await postJsonWithHttps(endpoint, payload, {
+            headers: {
+                Authorization: `Bearer ${apiKey}`
+            },
+            timeoutMs,
+            preferIPv4: true
+        });
+    } catch (error) {
+        if (error?.code === 'ETIMEDOUT') {
+            throw new Error('连接 OpenAI API 超时，请稍后重试。');
+        }
 
-    const result = await response.json().catch(() => ({}));
+        if (error?.code === 'ENOTFOUND' || error?.code === 'EAI_AGAIN') {
+            throw new Error('无法解析 OpenAI API 域名，请检查网络连接。');
+        }
 
-    if (!response.ok) {
+        if (error?.code === 'ECONNRESET' || error?.code === 'ECONNREFUSED') {
+            throw new Error('无法连接到 OpenAI API，请稍后重试。');
+        }
+
+        throw error;
+    }
+
+    if (!requestResult.ok) {
         const message =
-            result?.error?.message || result?.message || `OpenAI API 请求失败（${response.status}）`;
+            requestResult.body?.error?.message ||
+            requestResult.body?.message ||
+            `OpenAI API 请求失败（${requestResult.status}）`;
         throw new Error(message);
     }
 
-    const text = extractTextFromOpenAIResponse(result);
+    const text = extractTextFromOpenAIResponse(requestResult.body);
     if (!text) {
         throw new Error('OpenAI 未返回检查结果。');
     }
