@@ -231,11 +231,80 @@ async function verifyExternalConnections() {
         console.warn('Skipping Kimi connectivity check because MOONSHOT_API_KEY is not configured.');
     }
 
+    if (process.env.OPENAI_API_KEY) {
+        checks.push(
+            verifyOpenAIConnectivity()
+                .then(() => {
+                    console.log('OpenAI connectivity check succeeded.');
+                })
+                .catch((error) => {
+                    console.warn('OpenAI connectivity check failed', error);
+                })
+        );
+    } else {
+        console.warn('Skipping OpenAI connectivity check because OPENAI_API_KEY is not configured.');
+    }
+
     if (checks.length === 0) {
         return;
     }
 
     await Promise.allSettled(checks);
+}
+
+async function verifyOpenAIConnectivity() {
+    const baseUrl = String(process.env.OPENAI_API_BASE || 'https://api.openai.com/v1').replace(/\/$/, '');
+    const endpointUrl = new URL('models', `${baseUrl}/`);
+    const hostname = endpointUrl.hostname;
+    const headers = {};
+
+    if (typeof process.env.OPENAI_API_KEY === 'string') {
+        headers.Authorization = `Bearer ${process.env.OPENAI_API_KEY}`;
+    }
+
+    if (dns.promises?.lookup) {
+        const lookupResult = await dns.promises.lookup(hostname, { family: 4 }).catch((error) => {
+            throw Object.assign(new Error(`无法解析 OpenAI API 域名 ${hostname}：${error.message}`), {
+                cause: error
+            });
+        });
+
+        if (!lookupResult || !lookupResult.address) {
+            throw new Error(`OpenAI API 域名 ${hostname} 未返回有效的 IPv4 地址。`);
+        }
+    }
+
+    await new Promise((resolve, reject) => {
+        const request = https.request(
+            {
+                protocol: endpointUrl.protocol,
+                hostname,
+                port: endpointUrl.port || 443,
+                method: 'HEAD',
+                path: `${endpointUrl.pathname}${endpointUrl.search}`,
+                timeout: Number(process.env.OPENAI_TIMEOUT_MS) || 5000,
+                lookup: preferIPv4Lookup,
+                headers
+            },
+            (response) => {
+                response.resume();
+                response.once('end', resolve);
+                response.once('close', resolve);
+                response.once('error', reject);
+            }
+        );
+
+        request.on('timeout', () => {
+            request.destroy(
+                Object.assign(new Error('OpenAI API 连通性检查超时。'), {
+                    code: 'ETIMEDOUT'
+                })
+            );
+        });
+
+        request.on('error', reject);
+        request.end();
+    });
 }
 
 async function verifyKimiConnectivity() {
