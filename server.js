@@ -24,6 +24,7 @@ const DATA_DIR = path.join(ROOT_DIR, 'data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const ENTRIES_FILE = path.join(DATA_DIR, 'entries.json');
 const LOG_FILE = path.join(DATA_DIR, 'activity.log');
+const AI_LOG_FILE = path.join(ROOT_DIR, 'ai-calls.log');
 const PHOTO_CHECK_DIR = path.join(DATA_DIR, 'photo-check');
 const PHOTO_CHECK_RECORDS_DIR = path.join(PHOTO_CHECK_DIR, 'records');
 const PHOTO_CHECK_HISTORY_FILE = path.join(PHOTO_CHECK_DIR, 'history.json');
@@ -758,6 +759,7 @@ app.get('/api/photo-check/records/:id', async (req, res) => {
     }
 });
 
+
 async function recognizeTextWithQwen(buffer) {
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) {
@@ -771,6 +773,15 @@ async function recognizeTextWithQwen(buffer) {
     const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation';
     const model = process.env.QWEN_VL_MODEL || 'qwen-vl-max';
     const base64Image = buffer.toString('base64');
+
+    const requestSummary = {
+        endpoint,
+        model,
+        imageBytes: buffer?.length || 0,
+        prompt: '请直接返回图片中识别到的文字，不要添加任何其他说明或格式。'
+    };
+
+    let responseSummary;
 
     const payload = {
         model,
@@ -794,33 +805,60 @@ async function recognizeTextWithQwen(buffer) {
         }
     };
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload)
-    });
+    let result;
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
 
-    const result = await response.json().catch(() => ({}));
+        result = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-        const message = result?.message || `Qwen API 请求失败（${response.status}）`;
-        throw new Error(message);
+        responseSummary = {
+            status: response.status,
+            ok: response.ok,
+            body: result
+        };
+
+        if (!response.ok) {
+            const message = result?.message || `Qwen API 请求失败（${response.status}）`;
+            throw new Error(message);
+        }
+
+        if (result?.code && Number(result.code) !== 200) {
+            const message = result?.message || 'Qwen API 返回错误。';
+            throw new Error(message);
+        }
+
+        const text = extractTextFromQwenResponse(result);
+        if (!text) {
+            throw new Error('Qwen 未返回识别结果。');
+        }
+
+        await logAiInteraction('qwen-vl', {
+            action: 'recognize-text',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: { ...responseSummary, outputText: text }
+        });
+
+        return text;
+    } catch (error) {
+        await logAiInteraction('qwen-vl', {
+            action: 'recognize-text',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: responseSummary,
+            error
+        });
+        throw error;
     }
-
-    if (result?.code && Number(result.code) !== 200) {
-        const message = result?.message || 'Qwen API 返回错误。';
-        throw new Error(message);
-    }
-
-    const text = extractTextFromQwenResponse(result);
-    if (!text) {
-        throw new Error('Qwen 未返回识别结果。');
-    }
-
-    return text;
 }
 
 async function recognizeFormulaWithQwen(buffer) {
@@ -845,7 +883,18 @@ async function recognizeFormulaWithQwen(buffer) {
   "mathml": "可选的 MathML 表达式",
   "plainText": "便于理解或复制的线性表达"
 }
-如果试卷里有多道题目，请保持原有题号顺序，用 \\n 分隔不同题目，保留分数、根号、上下标等结构，勿添加额外说明。`;
+如果试卷里有多道题目，请保持原有题号顺序，用 \
+ 分隔不同题目，保留分数、根号、上下标等结构，勿添加额外说明。`;
+
+    const requestSummary = {
+        endpoint,
+        model,
+        imageBytes: buffer?.length || 0,
+        systemPrompt,
+        userPrompt
+    };
+
+    let responseSummary;
 
     const payload = {
         model,
@@ -876,49 +925,76 @@ async function recognizeFormulaWithQwen(buffer) {
         imageBytes: buffer?.length || 0
     });
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload)
-    });
+    let result;
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
 
-    const result = await response.json().catch(() => ({}));
+        result = await response.json().catch(() => ({}));
 
-    console.info('[photo-check][qwen-vl] Received response', {
-        status: response.status,
-        ok: response.ok,
-        raw: result
-    });
+        responseSummary = {
+            status: response.status,
+            ok: response.ok,
+            body: result
+        };
 
-    if (!response.ok) {
-        const message = result?.message || `Qwen API 请求失败（${response.status}）`;
-        throw new Error(message);
+        console.info('[photo-check][qwen-vl] Received response', {
+            status: response.status,
+            ok: response.ok,
+            raw: result
+        });
+
+        if (!response.ok) {
+            const message = result?.message || `Qwen API 请求失败（${response.status}）`;
+            throw new Error(message);
+        }
+
+        if (result?.code && Number(result.code) !== 200) {
+            const message = result?.message || 'Qwen API 返回错误。';
+            throw new Error(message);
+        }
+
+        const text = extractTextFromQwenResponse(result);
+        if (!text) {
+            throw new Error('Qwen 未返回识别结果。');
+        }
+
+        const parsed = parseFormulaRecognitionJson(text);
+        if (!parsed) {
+            throw new Error('Qwen 返回结果格式不正确。');
+        }
+
+        const normalized = normalizeFormulaRecognitionResult(parsed);
+        if (!normalized.latex && !normalized.mathml && !normalized.plainText) {
+            throw new Error('Qwen 未能识别出可用的题目信息。');
+        }
+
+        await logAiInteraction('qwen-vl', {
+            action: 'recognize-formula',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: { ...responseSummary, output: normalized }
+        });
+
+        return normalized;
+    } catch (error) {
+        await logAiInteraction('qwen-vl', {
+            action: 'recognize-formula',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: responseSummary,
+            error
+        });
+        throw error;
     }
-
-    if (result?.code && Number(result.code) !== 200) {
-        const message = result?.message || 'Qwen API 返回错误。';
-        throw new Error(message);
-    }
-
-    const text = extractTextFromQwenResponse(result);
-    if (!text) {
-        throw new Error('Qwen 未返回识别结果。');
-    }
-
-    const parsed = parseFormulaRecognitionJson(text);
-    if (!parsed) {
-        throw new Error('Qwen 返回结果格式不正确。');
-    }
-
-    const normalized = normalizeFormulaRecognitionResult(parsed);
-    if (!normalized.latex && !normalized.mathml && !normalized.plainText) {
-        throw new Error('Qwen 未能识别出可用的题目信息。');
-    }
-
-    return normalized;
 }
 
 function extractTextFromQwenResponse(result) {
@@ -1336,6 +1412,7 @@ async function createPhotoCheckProblemCrop(buffer, region, filename) {
     };
 }
 
+
 async function analyzePhotoWithQwen(buffer) {
     const apiKey = process.env.DASHSCOPE_API_KEY;
     if (!apiKey) {
@@ -1382,6 +1459,16 @@ async function analyzePhotoWithQwen(buffer) {
   }
 }`;
 
+    const requestSummary = {
+        endpoint,
+        model,
+        imageBytes: buffer?.length || 0,
+        systemPrompt,
+        userPrompt
+    };
+
+    let responseSummary;
+
     const payload = {
         model,
         input: {
@@ -1404,39 +1491,66 @@ async function analyzePhotoWithQwen(buffer) {
         }
     };
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload)
-    });
+    let result;
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
 
-    const result = await response.json().catch(() => ({}));
+        result = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
-        const message = result?.message || `Qwen API 请求失败（${response.status}）`;
-        throw new Error(message);
+        responseSummary = {
+            status: response.status,
+            ok: response.ok,
+            body: result
+        };
+
+        if (!response.ok) {
+            const message = result?.message || `Qwen API 请求失败（${response.status}）`;
+            throw new Error(message);
+        }
+
+        if (result?.code && Number(result.code) !== 200) {
+            const message = result?.message || 'Qwen API 返回错误。';
+            throw new Error(message);
+        }
+
+        const text = extractTextFromQwenResponse(result);
+        if (!text) {
+            throw new Error('Qwen 未返回检查结果。');
+        }
+
+        const parsed = parsePhotoCheckJson(text);
+        console.info('[photo-check][qwen-vl] Parsed response', parsed);
+        if (!parsed) {
+            throw new Error('Qwen 返回结果格式不正确。');
+        }
+
+        await logAiInteraction('qwen-vl', {
+            action: 'photo-check-analysis',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: { ...responseSummary, output: parsed }
+        });
+
+        return parsed;
+    } catch (error) {
+        await logAiInteraction('qwen-vl', {
+            action: 'photo-check-analysis',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: responseSummary,
+            error
+        });
+        throw error;
     }
-
-    if (result?.code && Number(result.code) !== 200) {
-        const message = result?.message || 'Qwen API 返回错误。';
-        throw new Error(message);
-    }
-
-    const text = extractTextFromQwenResponse(result);
-    if (!text) {
-        throw new Error('Qwen 未返回检查结果。');
-    }
-
-    const parsed = parsePhotoCheckJson(text);
-    console.info('[photo-check][qwen-vl] Parsed response', parsed);
-    if (!parsed) {
-        throw new Error('Qwen 返回结果格式不正确。');
-    }
-
-    return parsed;
 }
 
 async function reviewPhotoCheckProblemsWithMultipleModels(problems) {
@@ -1476,6 +1590,7 @@ async function reviewPhotoCheckProblemsWithMultipleModels(problems) {
     return attempts;
 }
 
+
 async function reviewPhotoCheckProblemsWithQwen(problems) {
     if (!Array.isArray(problems) || problems.length === 0) {
         return createEmptyPhotoCheckAttempt('qwen');
@@ -1496,6 +1611,16 @@ async function reviewPhotoCheckProblemsWithQwen(problems) {
     const systemPrompt =
         '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
     const userPrompt = buildPhotoCheckTextReviewPrompt(problems);
+
+    const requestSummary = {
+        endpoint,
+        model,
+        problemCount: problems.length,
+        systemPrompt,
+        userPrompt
+    };
+
+    let responseSummary;
 
     const payload = {
         model,
@@ -1523,46 +1648,74 @@ async function reviewPhotoCheckProblemsWithQwen(problems) {
         problemCount: problems.length
     });
 
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload)
-    });
+    let result;
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
 
-    const result = await response.json().catch(() => ({}));
+        result = await response.json().catch(() => ({}));
 
-    console.info('[photo-check][qwen-qa] Received response', {
-        status: response.status,
-        ok: response.ok,
-        raw: result
-    });
+        responseSummary = {
+            status: response.status,
+            ok: response.ok,
+            body: result
+        };
 
-    if (!response.ok) {
-        const message = result?.message || `Qwen API 请求失败（${response.status}）`;
-        throw new Error(message);
+        console.info('[photo-check][qwen-qa] Received response', {
+            status: response.status,
+            ok: response.ok,
+            raw: result
+        });
+
+        if (!response.ok) {
+            const message = result?.message || `Qwen API 请求失败（${response.status}）`;
+            throw new Error(message);
+        }
+
+        if (result?.code && Number(result.code) !== 200) {
+            const message = result?.message || 'Qwen API 返回错误。';
+            throw new Error(message);
+        }
+
+        const text = extractTextFromQwenResponse(result);
+        if (!text) {
+            throw new Error('Qwen 未返回检查结果。');
+        }
+
+        const parsed = parsePhotoCheckJson(text);
+        console.info('[photo-check][qwen-qa] Parsed response', parsed);
+        if (!parsed) {
+            throw new Error('Qwen 返回结果格式不正确。');
+        }
+
+        await logAiInteraction('qwen-qa', {
+            action: 'photo-check-review',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: { ...responseSummary, output: parsed }
+        });
+
+        return parsed;
+    } catch (error) {
+        await logAiInteraction('qwen-qa', {
+            action: 'photo-check-review',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: responseSummary,
+            error
+        });
+        throw error;
     }
-
-    if (result?.code && Number(result.code) !== 200) {
-        const message = result?.message || 'Qwen API 返回错误。';
-        throw new Error(message);
-    }
-
-    const text = extractTextFromQwenResponse(result);
-    if (!text) {
-        throw new Error('Qwen 未返回检查结果。');
-    }
-
-    const parsed = parsePhotoCheckJson(text);
-    console.info('[photo-check][qwen-qa] Parsed response', parsed);
-    if (!parsed) {
-        throw new Error('Qwen 返回结果格式不正确。');
-    }
-
-    return mergePhotoCheckTextReview(parsed, problems);
 }
+
 
 async function reviewPhotoCheckProblemsWithKimi(problems) {
     if (!Array.isArray(problems) || problems.length === 0) {
@@ -1580,6 +1733,14 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
     const systemPrompt =
         '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
     const userPrompt = buildPhotoCheckTextReviewPrompt(problems);
+
+    const requestSummary = {
+        endpoint,
+        model,
+        problemCount: problems.length,
+        systemPrompt,
+        userPrompt
+    };
 
     const payload = {
         model,
@@ -1599,16 +1760,67 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
 
     const timeoutMs = Number(process.env.MOONSHOT_TIMEOUT_MS) || 20000;
 
-    let requestResult;
+    let responseSummary;
+
     try {
-        requestResult = await postJsonWithHttps(endpoint, payload, {
+        const requestResult = await postJsonWithHttps(endpoint, payload, {
             headers: {
                 Authorization: `Bearer ${apiKey}`
             },
             timeoutMs,
             preferIPv4: true
         });
+
+        responseSummary = {
+            status: requestResult?.status,
+            ok: requestResult?.ok,
+            body: requestResult?.body
+        };
+
+        console.info('[photo-check][kimi] Received response', {
+            status: requestResult?.status,
+            ok: requestResult?.ok,
+            raw: requestResult?.body
+        });
+
+        if (!requestResult.ok) {
+            const message =
+                requestResult.body?.error?.message ||
+                requestResult.body?.message ||
+                `Kimi API 请求失败（${requestResult.status}）`;
+            throw new Error(message);
+        }
+
+        const text = extractTextFromKimiResponse(requestResult.body);
+        if (!text) {
+            throw new Error('Kimi 未返回检查结果。');
+        }
+
+        const parsed = parsePhotoCheckJson(text);
+        console.info('[photo-check][kimi] Parsed response', parsed);
+        if (!parsed) {
+            throw new Error('Kimi 返回结果格式不正确。');
+        }
+
+        await logAiInteraction('kimi', {
+            action: 'photo-check-review',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: { ...responseSummary, output: parsed }
+        });
+
+        return parsed;
     } catch (error) {
+        await logAiInteraction('kimi', {
+            action: 'photo-check-review',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: responseSummary,
+            error
+        });
+
         if (error?.code === 'ETIMEDOUT') {
             throw new Error('连接 Kimi API 超时，请稍后重试。');
         }
@@ -1623,34 +1835,8 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
 
         throw error;
     }
-
-    console.info('[photo-check][kimi] Received response', {
-        status: requestResult?.status,
-        ok: requestResult?.ok,
-        raw: requestResult?.body
-    });
-
-    if (!requestResult.ok) {
-        const message =
-            requestResult.body?.error?.message ||
-            requestResult.body?.message ||
-            `Kimi API 请求失败（${requestResult.status}）`;
-        throw new Error(message);
-    }
-
-    const text = extractTextFromKimiResponse(requestResult.body);
-    if (!text) {
-        throw new Error('Kimi 未返回检查结果。');
-    }
-
-    const parsed = parsePhotoCheckJson(text);
-    console.info('[photo-check][kimi] Parsed response', parsed);
-    if (!parsed) {
-        throw new Error('Kimi 返回结果格式不正确。');
-    }
-
-    return mergePhotoCheckTextReview(parsed, problems);
 }
+
 
 async function reviewPhotoCheckProblemsWithOpenAI(problems) {
     if (!Array.isArray(problems) || problems.length === 0) {
@@ -1667,16 +1853,25 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
     const model = process.env.OPENAI_QA_MODEL || 'gpt-5-mini';
     const timeoutMs = toFiniteNumber(process.env.OPENAI_TIMEOUT_MS) || 36000;
 
+    const systemPrompt =
+        '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
+    const userPrompt = buildPhotoCheckTextReviewPrompt(problems);
+
+    const requestSummary = {
+        endpoint,
+        model,
+        problemCount: problems.length,
+        systemPrompt,
+        userPrompt,
+        timeoutMs
+    };
+
     console.info('Preparing OpenAI text review request', {
         endpoint,
         model,
         timeoutMs,
         problemCount: problems.length
     });
-
-    const systemPrompt =
-        '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
-    const userPrompt = buildPhotoCheckTextReviewPrompt(problems);
 
     const payload = {
         model,
@@ -1698,6 +1893,7 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
     });
 
     let requestResult;
+    let responseSummary;
     try {
         if (typeof fetch === 'function') {
             requestResult = await postJsonWithFetch(endpoint, payload, {
@@ -1717,7 +1913,64 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
                 debugLabel: 'openai:chat-completions'
             });
         }
+
+        responseSummary = {
+            status: requestResult?.status,
+            ok: requestResult?.ok,
+            body: requestResult?.body
+        };
+
+        console.info('[photo-check][openai] Received response', {
+            status: requestResult?.status,
+            ok: requestResult?.ok,
+            raw: requestResult?.body
+        });
+
+        if (!requestResult.ok) {
+            const message =
+                requestResult.body?.error?.message ||
+                requestResult.body?.message ||
+                `OpenAI API 请求失败（${requestResult.status}）`;
+            throw new Error(message);
+        }
+
+        console.info('OpenAI request succeeded', {
+            status: requestResult.status,
+            endpoint,
+            model,
+            durationMs: requestResult?.headers?.['x-response-time'] || undefined
+        });
+
+        const text = extractTextFromOpenAIResponse(requestResult.body);
+        if (!text) {
+            throw new Error('OpenAI 未返回检查结果。');
+        }
+
+        const parsed = parsePhotoCheckJson(text);
+        console.info('[photo-check][openai] Parsed response', parsed);
+        if (!parsed) {
+            throw new Error('OpenAI 返回结果格式不正确。');
+        }
+
+        await logAiInteraction('openai', {
+            action: 'photo-check-review',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: { ...responseSummary, output: parsed }
+        });
+
+        return mergePhotoCheckTextReview(parsed, problems);
     } catch (error) {
+        await logAiInteraction('openai', {
+            action: 'photo-check-review',
+            endpoint,
+            model,
+            request: requestSummary,
+            response: responseSummary,
+            error
+        });
+
         console.warn('OpenAI request failed before receiving a response', {
             endpoint,
             model,
@@ -1740,40 +1993,6 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
 
         throw error;
     }
-
-    console.info('[photo-check][openai] Received response', {
-        status: requestResult?.status,
-        ok: requestResult?.ok,
-        raw: requestResult?.body
-    });
-
-    if (!requestResult.ok) {
-        const message =
-            requestResult.body?.error?.message ||
-            requestResult.body?.message ||
-            `OpenAI API 请求失败（${requestResult.status}）`;
-        throw new Error(message);
-    }
-
-    console.info('OpenAI request succeeded', {
-        status: requestResult.status,
-        endpoint,
-        model,
-        durationMs: requestResult?.headers?.['x-response-time'] || undefined
-    });
-
-    const text = extractTextFromOpenAIResponse(requestResult.body);
-    if (!text) {
-        throw new Error('OpenAI 未返回检查结果。');
-    }
-
-    const parsed = parsePhotoCheckJson(text);
-    console.info('[photo-check][openai] Parsed response', parsed);
-    if (!parsed) {
-        throw new Error('OpenAI 返回结果格式不正确。');
-    }
-
-    return mergePhotoCheckTextReview(parsed, problems);
 }
 
 async function postJsonWithHttps(url, payload, options = {}) {
@@ -4145,6 +4364,60 @@ async function logAction(action, status, details = {}) {
         await fsp.appendFile(LOG_FILE, `${JSON.stringify(entry)}\n`);
     } catch (error) {
         console.warn('Failed to write activity log', error);
+    }
+}
+
+function safeStringifyForLog(value, options = {}) {
+    const { stringLimit = 2000 } = options;
+    const replacer = (_, val) => {
+        if (typeof val === 'string' && val.length > stringLimit) {
+            return `${val.slice(0, stringLimit)}... [truncated ${val.length - stringLimit} chars]`;
+        }
+        return val;
+    };
+
+    try {
+        if (typeof value === 'string') {
+            return value.length > stringLimit
+                ? `${value.slice(0, stringLimit)}... [truncated ${value.length - stringLimit} chars]`
+                : value;
+        }
+
+        return JSON.stringify(value, replacer, 2);
+    } catch (error) {
+        return String(value);
+    }
+}
+
+function serializeErrorForLog(error) {
+    if (!error) return undefined;
+    return {
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+    };
+}
+
+async function logAiInteraction(provider, details = {}) {
+    const { action, endpoint, model, request, response, error } = details;
+    const timestamp = new Date().toISOString();
+    const sections = [
+        `=== AI CALL ${timestamp} ===`,
+        `Provider: ${provider}`,
+        action ? `Action: ${action}` : null,
+        endpoint ? `Endpoint: ${endpoint}` : null,
+        model ? `Model: ${model}` : null,
+        request ? `Request:\n${safeStringifyForLog(request)}` : null,
+        response ? `Response:\n${safeStringifyForLog(response)}` : null,
+        error ? `Error:\n${safeStringifyForLog(serializeErrorForLog(error))}` : null,
+        ''
+    ].filter(Boolean);
+
+    try {
+        await fsp.appendFile(AI_LOG_FILE, `${sections.join('\n')}\n`);
+    } catch (writeError) {
+        console.warn('Failed to write AI call log', writeError);
     }
 }
 
