@@ -282,7 +282,7 @@ async function verifyOpenAIConnectivity() {
                 port: endpointUrl.port || 443,
                 method: 'HEAD',
                 path: `${endpointUrl.pathname}${endpointUrl.search}`,
-                timeout: Number(process.env.OPENAI_TIMEOUT_MS) || 5000,
+                timeout: Number(process.env.OPENAI_TIMEOUT_MS) || 9000,
                 lookup: preferIPv4Lookup,
                 headers
             },
@@ -1623,7 +1623,7 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
     const baseUrl = String(process.env.OPENAI_API_BASE || 'https://api.openai.com/v1').replace(/\/$/, '');
     const endpoint = `${baseUrl}/chat/completions`;
     const model = process.env.OPENAI_QA_MODEL || 'gpt-5-mini';
-    const timeoutMs = toFiniteNumber(process.env.OPENAI_TIMEOUT_MS) || 20000;
+    const timeoutMs = toFiniteNumber(process.env.OPENAI_TIMEOUT_MS) || 36000;
 
     console.info('Preparing OpenAI text review request', {
         endpoint,
