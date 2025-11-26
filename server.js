@@ -466,7 +466,7 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
                 const originalName = getUploadedFileName(file);
 
                 await logAction('photo-check', 'success', {
-                    provider: 'qwen+kimi',
+                    provider: 'qwen+kimi+openai',
                     total: summary.total,
                     correct: summary.correct,
                     incorrect: summary.incorrect,
@@ -1381,6 +1381,15 @@ async function reviewPhotoCheckProblemsWithMultipleModels(problems) {
         console.warn('Failed to review problems with Kimi', error);
     }
 
+    try {
+        const attempt = await reviewPhotoCheckProblemsWithOpenAI(clonePhotoCheckProblems(problems));
+        if (attempt) {
+            attempts.push({ ...attempt, provider: attempt.provider || 'openai' });
+        }
+    } catch (error) {
+        console.warn('Failed to review problems with OpenAI', error);
+    }
+
     return attempts;
 }
 
@@ -1532,6 +1541,66 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
     return mergePhotoCheckTextReview(parsed, problems);
 }
 
+async function reviewPhotoCheckProblemsWithOpenAI(problems) {
+    if (!Array.isArray(problems) || problems.length === 0) {
+        return createEmptyPhotoCheckAttempt('openai');
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 OpenAI API Key 配置。');
+    }
+
+    if (typeof fetch !== 'function') {
+        throw new Error('当前运行环境不支持向 OpenAI 发起请求。');
+    }
+
+    const endpoint = 'https://api.openai.com/v1/chat/completions';
+    const model = 'gpt-5';
+
+    const systemPrompt =
+        '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
+    const userPrompt = buildPhotoCheckTextReviewPrompt(problems);
+
+    const payload = {
+        model,
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+        ],
+        temperature: 0
+    };
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message =
+            result?.error?.message || result?.message || `OpenAI API 请求失败（${response.status}）`;
+        throw new Error(message);
+    }
+
+    const text = extractTextFromOpenAIResponse(result);
+    if (!text) {
+        throw new Error('OpenAI 未返回检查结果。');
+    }
+
+    const parsed = parsePhotoCheckJson(text);
+    if (!parsed) {
+        throw new Error('OpenAI 返回结果格式不正确。');
+    }
+
+    return mergePhotoCheckTextReview(parsed, problems);
+}
+
 async function postJsonWithHttps(url, payload, options = {}) {
     const { headers = {}, timeoutMs = 20000, preferIPv4 = false } = options;
     const body = payload === undefined ? '' : JSON.stringify(payload);
@@ -1627,6 +1696,30 @@ function extractTextFromKimiResponse(result) {
 
     if (typeof result?.data === 'string') {
         return result.data.trim();
+    }
+
+    return '';
+}
+
+function extractTextFromOpenAIResponse(result) {
+    if (!result) return '';
+
+    const choices = Array.isArray(result.choices) ? result.choices : [];
+    for (const choice of choices) {
+        const message = choice?.message;
+        if (typeof message?.content === 'string' && message.content.trim()) {
+            return message.content.trim();
+        }
+
+        if (Array.isArray(message?.content)) {
+            const parts = message.content
+                .map((part) => (typeof part === 'string' ? part : part?.text || ''))
+                .filter(Boolean)
+                .join('');
+            if (parts) {
+                return parts.trim();
+            }
+        }
     }
 
     return '';
