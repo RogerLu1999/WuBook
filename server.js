@@ -1650,14 +1650,24 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
 
     let requestResult;
     try {
-        requestResult = await postJsonWithHttps(endpoint, payload, {
-            headers: {
-                Authorization: `Bearer ${apiKey}`
-            },
-            timeoutMs,
-            preferIPv4: true,
-            debugLabel: 'openai:chat-completions'
-        });
+        if (typeof fetch === 'function') {
+            requestResult = await postJsonWithFetch(endpoint, payload, {
+                headers: {
+                    Authorization: `Bearer ${apiKey}`
+                },
+                timeoutMs,
+                debugLabel: 'openai:chat-completions'
+            });
+        } else {
+            requestResult = await postJsonWithHttps(endpoint, payload, {
+                headers: {
+                    Authorization: `Bearer ${apiKey}`
+                },
+                timeoutMs,
+                preferIPv4: true,
+                debugLabel: 'openai:chat-completions'
+            });
+        }
     } catch (error) {
         console.warn('OpenAI request failed before receiving a response', {
             endpoint,
@@ -1815,6 +1825,80 @@ async function postJsonWithHttps(url, payload, options = {}) {
 
         req.end(body);
     });
+}
+
+async function postJsonWithFetch(url, payload, options = {}) {
+    const { headers = {}, timeoutMs = 20000, debugLabel = 'fetch:post' } = options;
+    if (typeof fetch !== 'function') {
+        throw new Error('当前运行环境不支持 fetch。');
+    }
+
+    const body = payload === undefined ? '' : JSON.stringify(payload);
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    console.info(`[${debugLabel}] (${requestId}) Sending POST request via fetch`, {
+        url,
+        timeoutMs,
+        bodyBytes: Buffer.byteLength(body)
+    });
+
+    let response;
+    try {
+        response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...headers
+            },
+            body,
+            signal: controller.signal
+        });
+    } catch (error) {
+        const durationMs = Date.now() - startedAt;
+        if (error?.name === 'AbortError') {
+            const timeoutError = Object.assign(new Error(`请求 ${url} 超时（>${timeoutMs}ms）`), {
+                code: 'ETIMEDOUT'
+            });
+            console.warn(`[${debugLabel}] (${requestId}) Fetch request aborted`, {
+                durationMs,
+                message: timeoutError.message
+            });
+            clearTimeout(timeout);
+            throw timeoutError;
+        }
+
+        console.warn(`[${debugLabel}] (${requestId}) Fetch request failed`, {
+            durationMs,
+            message: error?.message,
+            code: error?.code
+        });
+        clearTimeout(timeout);
+        throw error;
+    }
+
+    clearTimeout(timeout);
+    const raw = await response.text();
+    const durationMs = Date.now() - startedAt;
+    const parsed = safeJsonParse(raw);
+
+    console.info(`[${debugLabel}] (${requestId}) Received fetch response`, {
+        status: response.status,
+        durationMs,
+        contentLength: raw.length
+    });
+
+    return {
+        ok: response.ok,
+        status: response.status,
+        headers: typeof response.headers?.entries === 'function'
+            ? Object.fromEntries(response.headers.entries())
+            : {},
+        body: parsed,
+        rawBody: raw
+    };
 }
 
 function safeJsonParse(text) {
