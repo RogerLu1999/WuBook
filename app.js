@@ -106,6 +106,7 @@ const errorReasonFilter = document.getElementById('error-reason-filter');
 const dateStartInput = document.getElementById('date-start');
 const dateEndInput = document.getElementById('date-end');
 const createdAtInput = document.getElementById('created-at');
+const sourceInput = document.getElementById('source');
 const subjectInput = document.getElementById('subject');
 const semesterSelect = document.getElementById('semester');
 const entryTemplate = document.getElementById('entry-template');
@@ -181,6 +182,7 @@ const openLogPanelLink = document.getElementById('open-log-panel');
 const closeLogPanelLink = document.getElementById('close-log-panel');
 const mathShortcutLink = document.getElementById('math-shortcut');
 const sourceHistoryList = document.getElementById('source-history');
+const subjectOptionsList = document.getElementById('subject-options');
 const questionTypeHistoryList = document.getElementById('question-type-history');
 const formulaPanel = document.getElementById('formula-panel');
 const openFormulaPanelLink = document.getElementById('open-formula-panel');
@@ -351,10 +353,14 @@ function initRichTextEditors() {
 
 const STORAGE_KEYS = {
     lastSubject: 'wubook:lastSubject',
+    lastSource: 'wubook:lastSource',
     sourceHistory: 'wubook:sourceHistory',
+    subjectHistory: 'wubook:subjectHistory',
     questionTypeHistory: 'wubook:questionTypeHistory',
     paperExportMode: 'wubook:paperExportMode'
 };
+
+const SUBJECT_BASE_OPTIONS = ['数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理', '政治', '科学'];
 
 const LOCAL_STORAGE_AVAILABLE = (() => {
     try {
@@ -865,7 +871,9 @@ async function submitEntry(formData) {
 
         const entry = await response.json();
         rememberLastSubject(subject);
+        rememberLastSource(source);
         rememberHistoryValue(STORAGE_KEYS.sourceHistory, source);
+        rememberHistoryValue(STORAGE_KEYS.subjectHistory, subject);
         rememberHistoryValue(STORAGE_KEYS.questionTypeHistory, questionType);
         state.entries.unshift(normalizeEntry(entry));
         render();
@@ -1859,12 +1867,21 @@ function populateSelect(selectElement, values, filterKey) {
 function updateEntryFormSuggestions() {
     updateDatalistOptions(
         sourceHistoryList,
-        getHistoryValues(STORAGE_KEYS.sourceHistory, state.entries.map((entry) => entry.source))
+        getHistoryValues(STORAGE_KEYS.sourceHistory, state.entries.map((entry) => entry.source)).filter(
+            (value) => !value.includes('$')
+        )
     );
+    updateDatalistOptions(subjectOptionsList, getSubjectSuggestionValues());
     updateDatalistOptions(
         questionTypeHistoryList,
         getHistoryValues(STORAGE_KEYS.questionTypeHistory, state.entries.map((entry) => entry.questionType))
     );
+}
+
+function getSubjectSuggestionValues() {
+    const subjectsFromEntries = state.entries.map((entry) => entry.subject);
+    const history = getHistoryValues(STORAGE_KEYS.subjectHistory, subjectsFromEntries);
+    return [...SUBJECT_BASE_OPTIONS, ...history];
 }
 
 function updateDatalistOptions(datalist, values) {
@@ -1914,6 +1931,16 @@ function rememberLastSubject(subject) {
     }
 }
 
+function rememberLastSource(source) {
+    const normalized = (source ?? '').toString().trim();
+    if (!normalized || !LOCAL_STORAGE_AVAILABLE) return;
+    try {
+        window.localStorage.setItem(STORAGE_KEYS.lastSource, normalized);
+    } catch (error) {
+        console.warn('Unable to persist last source selection.', error);
+    }
+}
+
 function getLastSubject() {
     if (!LOCAL_STORAGE_AVAILABLE) {
         return '';
@@ -1922,6 +1949,18 @@ function getLastSubject() {
         return (window.localStorage.getItem(STORAGE_KEYS.lastSubject) || '').toString().trim();
     } catch (error) {
         console.warn('Unable to read last subject selection.', error);
+        return '';
+    }
+}
+
+function getLastSource() {
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return '';
+    }
+    try {
+        return (window.localStorage.getItem(STORAGE_KEYS.lastSource) || '').toString().trim();
+    } catch (error) {
+        console.warn('Unable to read last source selection.', error);
         return '';
     }
 }
@@ -5597,6 +5636,10 @@ function setCreatedAtDefaultValue() {
 
 function setDefaultSubjectAndSemester() {
     const defaultSubject = getLastSubject() || '数学';
+    const defaultSource = getLastSource();
+    if (sourceInput && !sourceInput.value && defaultSource) {
+        sourceInput.value = defaultSource;
+    }
     if (subjectInput && !subjectInput.value) {
         subjectInput.value = defaultSubject;
     }
