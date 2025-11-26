@@ -102,6 +102,37 @@ const SUBSCRIPT_MAP = new Map([
     ['n', 'ₙ']
 ]);
 
+const LATEX_SYMBOL_MAP = new Map([
+    ['\\times', '×'],
+    ['\\div', '÷'],
+    ['\\cdot', '·'],
+    ['\\pm', '±'],
+    ['\\pi', 'π'],
+    ['\\triangle', '△'],
+    ['\\perp', '⊥'],
+    ['\\angle', '∠'],
+    ['\\parallel', '∥'],
+    ['\\sim', '∼'],
+    ['\\approx', '≈'],
+    ['\\neq', '≠'],
+    ['\\geq', '≥'],
+    ['\\leq', '≤'],
+    ['\\cdots', '⋯'],
+    ['\\ldots', '…'],
+    ['\\infty', '∞'],
+    ['\\alpha', 'α'],
+    ['\\beta', 'β'],
+    ['\\gamma', 'γ'],
+    ['\\delta', 'δ'],
+    ['\\theta', 'θ'],
+    ['\\lambda', 'λ'],
+    ['\\mu', 'μ'],
+    ['\\rho', 'ρ'],
+    ['\\sigma', 'σ'],
+    ['\\phi', 'φ'],
+    ['\\omega', 'ω']
+]);
+
 const SUBJECT_PREFIX_MAP = new Map([
     ['数学', 'M'],
     ['英语', 'E'],
@@ -3461,6 +3492,14 @@ function replaceWithScript(text, pattern, map) {
     });
 }
 
+function replaceLatexSymbols(text) {
+    return text.replace(/\\([a-zA-Z]+|.)/g, (match, name) => {
+        const command = `\\${name}`;
+        const replacement = LATEX_SYMBOL_MAP.get(command);
+        return replacement || match;
+    });
+}
+
 function normalizeMathText(text) {
     if (!text) return '';
     let normalized = text;
@@ -3468,6 +3507,7 @@ function normalizeMathText(text) {
     normalized = normalized.replace(/\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/g, '($1)/($2)');
     normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√($1)');
     normalized = normalized.replace(/\\cdot/g, '·');
+    normalized = replaceLatexSymbols(normalized);
     normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
     normalized = replaceWithScript(normalized, /_\{([^}]+)\}|_(\S)/g, SUBSCRIPT_MAP);
     normalized = normalized.replace(/\s+/g, ' ').trim();
