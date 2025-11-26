@@ -861,12 +861,13 @@ body {
 
 .photo-check-problem__grid {
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 1rem;
 }
 
-@media (min-width: 960px) {
+@media (min-width: 1200px) {
     .photo-check-problem__grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 }
 
