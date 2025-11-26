@@ -869,6 +869,13 @@ async function recognizeFormulaWithQwen(buffer) {
         }
     };
 
+    console.info('[photo-check][qwen-vl] Sending request', {
+        endpoint,
+        model,
+        promptLength: userPrompt?.length || 0,
+        imageBytes: buffer?.length || 0
+    });
+
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -879,6 +886,12 @@ async function recognizeFormulaWithQwen(buffer) {
     });
 
     const result = await response.json().catch(() => ({}));
+
+    console.info('[photo-check][qwen-vl] Received response', {
+        status: response.status,
+        ok: response.ok,
+        raw: result
+    });
 
     if (!response.ok) {
         const message = result?.message || `Qwen API 请求失败（${response.status}）`;
@@ -1418,6 +1431,7 @@ async function analyzePhotoWithQwen(buffer) {
     }
 
     const parsed = parsePhotoCheckJson(text);
+    console.info('[photo-check][qwen-vl] Parsed response', parsed);
     if (!parsed) {
         throw new Error('Qwen 返回结果格式不正确。');
     }
@@ -1502,6 +1516,13 @@ async function reviewPhotoCheckProblemsWithQwen(problems) {
         }
     };
 
+    console.info('[photo-check][qwen-qa] Sending request', {
+        endpoint,
+        model,
+        promptLength: userPrompt?.length || 0,
+        problemCount: problems.length
+    });
+
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -1512,6 +1533,12 @@ async function reviewPhotoCheckProblemsWithQwen(problems) {
     });
 
     const result = await response.json().catch(() => ({}));
+
+    console.info('[photo-check][qwen-qa] Received response', {
+        status: response.status,
+        ok: response.ok,
+        raw: result
+    });
 
     if (!response.ok) {
         const message = result?.message || `Qwen API 请求失败（${response.status}）`;
@@ -1529,6 +1556,7 @@ async function reviewPhotoCheckProblemsWithQwen(problems) {
     }
 
     const parsed = parsePhotoCheckJson(text);
+    console.info('[photo-check][qwen-qa] Parsed response', parsed);
     if (!parsed) {
         throw new Error('Qwen 返回结果格式不正确。');
     }
@@ -1562,6 +1590,13 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
         temperature: 0
     };
 
+    console.info('[photo-check][kimi] Sending request', {
+        endpoint,
+        model,
+        promptLength: userPrompt?.length || 0,
+        problemCount: problems.length
+    });
+
     const timeoutMs = Number(process.env.MOONSHOT_TIMEOUT_MS) || 20000;
 
     let requestResult;
@@ -1589,6 +1624,12 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
         throw error;
     }
 
+    console.info('[photo-check][kimi] Received response', {
+        status: requestResult?.status,
+        ok: requestResult?.ok,
+        raw: requestResult?.body
+    });
+
     if (!requestResult.ok) {
         const message =
             requestResult.body?.error?.message ||
@@ -1603,6 +1644,7 @@ async function reviewPhotoCheckProblemsWithKimi(problems) {
     }
 
     const parsed = parsePhotoCheckJson(text);
+    console.info('[photo-check][kimi] Parsed response', parsed);
     if (!parsed) {
         throw new Error('Kimi 返回结果格式不正确。');
     }
@@ -1648,6 +1690,13 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
             : {})
     };
 
+    console.info('[photo-check][openai] Sending request', {
+        endpoint,
+        model,
+        promptLength: userPrompt?.length || 0,
+        problemCount: problems.length
+    });
+
     let requestResult;
     try {
         if (typeof fetch === 'function') {
@@ -1692,6 +1741,12 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
         throw error;
     }
 
+    console.info('[photo-check][openai] Received response', {
+        status: requestResult?.status,
+        ok: requestResult?.ok,
+        raw: requestResult?.body
+    });
+
     if (!requestResult.ok) {
         const message =
             requestResult.body?.error?.message ||
@@ -1713,6 +1768,7 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
     }
 
     const parsed = parsePhotoCheckJson(text);
+    console.info('[photo-check][openai] Parsed response', parsed);
     if (!parsed) {
         throw new Error('OpenAI 返回结果格式不正确。');
     }
