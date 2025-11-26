@@ -1625,6 +1625,13 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
     const model = process.env.OPENAI_QA_MODEL || 'gpt-4o-mini';
     const timeoutMs = toFiniteNumber(process.env.OPENAI_TIMEOUT_MS) || 20000;
 
+    console.info('Preparing OpenAI text review request', {
+        endpoint,
+        model,
+        timeoutMs,
+        problemCount: problems.length
+    });
+
     const systemPrompt =
         '你是一位严谨的中学老师。根据提供的题目文本和学生答案，判断正误并输出结构化 JSON。';
     const userPrompt = buildPhotoCheckTextReviewPrompt(problems);
@@ -1645,9 +1652,18 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
                 Authorization: `Bearer ${apiKey}`
             },
             timeoutMs,
-            preferIPv4: true
+            preferIPv4: true,
+            debugLabel: 'openai:chat-completions'
         });
     } catch (error) {
+        console.warn('OpenAI request failed before receiving a response', {
+            endpoint,
+            model,
+            timeoutMs,
+            code: error?.code,
+            message: error?.message
+        });
+
         if (error?.code === 'ETIMEDOUT') {
             throw new Error('连接 OpenAI API 超时，请稍后重试。');
         }
@@ -1671,6 +1687,13 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
         throw new Error(message);
     }
 
+    console.info('OpenAI request succeeded', {
+        status: requestResult.status,
+        endpoint,
+        model,
+        durationMs: requestResult?.headers?.['x-response-time'] || undefined
+    });
+
     const text = extractTextFromOpenAIResponse(requestResult.body);
     if (!text) {
         throw new Error('OpenAI 未返回检查结果。');
@@ -1685,14 +1708,18 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
 }
 
 async function postJsonWithHttps(url, payload, options = {}) {
-    const { headers = {}, timeoutMs = 20000, preferIPv4 = false } = options;
+    const { headers = {}, timeoutMs = 20000, preferIPv4 = false, debugLabel = 'https:post' } = options;
     const body = payload === undefined ? '' : JSON.stringify(payload);
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    const bodyLength = Buffer.byteLength(body);
+    const endpoint = new URL(url);
 
     const requestOptions = {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(body),
+            'Content-Length': bodyLength,
             ...headers
         }
     };
@@ -1700,6 +1727,14 @@ async function postJsonWithHttps(url, payload, options = {}) {
     if (preferIPv4 && typeof preferIPv4Lookup === 'function') {
         requestOptions.lookup = preferIPv4Lookup;
     }
+
+    console.info(`[${debugLabel}] (${requestId}) Sending POST request`, {
+        host: endpoint.host,
+        path: endpoint.pathname,
+        timeoutMs,
+        preferIPv4,
+        bodyBytes: bodyLength
+    });
 
     return new Promise((resolve, reject) => {
         const req = https.request(url, requestOptions, (res) => {
@@ -1711,7 +1746,16 @@ async function postJsonWithHttps(url, payload, options = {}) {
             });
 
             res.on('end', () => {
+                const durationMs = Date.now() - startedAt;
                 const parsed = safeJsonParse(raw);
+                console.info(`[${debugLabel}] (${requestId}) Received response`, {
+                    status: res.statusCode,
+                    durationMs,
+                    contentLength: raw.length,
+                    host: endpoint.host,
+                    path: endpoint.pathname
+                });
+
                 resolve({
                     ok: res.statusCode >= 200 && res.statusCode < 300,
                     status: res.statusCode,
@@ -1721,18 +1765,45 @@ async function postJsonWithHttps(url, payload, options = {}) {
                 });
             });
 
-            res.on('error', reject);
+            res.on('error', (error) => {
+                const durationMs = Date.now() - startedAt;
+                console.warn(`[${debugLabel}] (${requestId}) Response stream error`, {
+                    message: error?.message,
+                    code: error?.code,
+                    durationMs,
+                    host: endpoint.host,
+                    path: endpoint.pathname
+                });
+                reject(error);
+            });
         });
 
         req.on('error', (error) => {
+            const durationMs = Date.now() - startedAt;
             if (error && error.code === 'ETIMEDOUT') {
                 error.message = `请求 ${url} 超时（>${timeoutMs}ms）`;
             }
+
+            console.warn(`[${debugLabel}] (${requestId}) Request error`, {
+                message: error?.message,
+                code: error?.code,
+                durationMs,
+                host: endpoint.host,
+                path: endpoint.pathname
+            });
+
             reject(error);
         });
 
         if (timeoutMs > 0) {
             req.setTimeout(timeoutMs, () => {
+                const durationMs = Date.now() - startedAt;
+                console.warn(`[${debugLabel}] (${requestId}) Request timed out`, {
+                    timeoutMs,
+                    durationMs,
+                    host: endpoint.host,
+                    path: endpoint.pathname
+                });
                 req.destroy(
                     Object.assign(new Error(`请求 ${url} 超时（>${timeoutMs}ms）`), { code: 'ETIMEDOUT' })
                 );
