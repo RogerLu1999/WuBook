@@ -1642,7 +1642,10 @@ async function reviewPhotoCheckProblemsWithOpenAI(problems) {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
         ],
-        temperature: 0
+        // gpt-5-mini does not allow overriding the default temperature, so omit when zero.
+        ...(process.env.OPENAI_TEMPERATURE && Number(process.env.OPENAI_TEMPERATURE) !== 0
+            ? { temperature: Number(process.env.OPENAI_TEMPERATURE) }
+            : {})
     };
 
     let requestResult;
