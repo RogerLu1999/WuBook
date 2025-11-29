@@ -2508,11 +2508,38 @@ function sanitizeFormulaText(value) {
     if (value == null) {
         return '';
     }
-    return String(value)
+    const cleaned = String(value)
         .replace(/```(?:json|latex|math)?/gi, '')
         .replace(/```/g, '')
         .replace(/^[^\S\r\n]+/gm, '')
         .trim();
+
+    return mergeQuestionNumbersWithContent(cleaned);
+}
+
+function mergeQuestionNumbersWithContent(text) {
+    if (!text) return '';
+
+    const lines = String(text).split(/\r?\n/);
+    const merged = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const current = lines[index];
+        const next = lines[index + 1];
+
+        if (isQuestionNumberLine(current) && next && next.trim()) {
+            merged.push(`${current.trim()} ${next.trimStart()}`);
+            index += 1;
+        } else {
+            merged.push(current);
+        }
+    }
+
+    return merged.join('\n');
+}
+
+function isQuestionNumberLine(line) {
+    return /^\s*[（(]?(?:第\s*)?\d+[.)．、）]?\s*$/.test(line || '');
 }
 
 function renderFormulaResult(result) {
