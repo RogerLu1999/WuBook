@@ -4236,6 +4236,21 @@ function replaceLatexFractions(text) {
 
 function normalizeMathText(text) {
     return normalizeMathTextBase(text, { convertFractions: true, trimWhitespace: true });
+    if (!text) return '';
+    let normalized = text;
+    normalized = normalized.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
+    normalized = replaceLatexFractions(normalized);
+    normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, (_, radicand) => {
+        const trimmed = radicand.trim();
+        const overline = '‾'.repeat(Math.max(trimmed.length, 1));
+        return `√${overline}${trimmed}`;
+    });
+    normalized = normalized.replace(/\\cdot/g, '·');
+    normalized = replaceLatexSymbols(normalized);
+    normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
+    normalized = replaceWithScript(normalized, /_\{([^}]+)\}|_(\S)/g, SUBSCRIPT_MAP);
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+    return normalized;
 }
 
 function buildMathComponents(text) {
