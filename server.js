@@ -24,7 +24,11 @@ const {
     Math: DocxMath,
     MathFraction,
     MathRun,
-    MathRadical
+    MathRadical,
+    Table,
+    TableCell,
+    TableRow,
+    WidthType
 } = require('docx');
 
 const app = express();
@@ -3968,26 +3972,22 @@ async function createPaperExport(entries, options = {}) {
 
     const mode = options.mode === 'question-only' ? 'question-only' : 'detailed';
     const doc = new Document({ sections: [] });
-    const children = [];
+    const rows = [];
     const updatedEntryIds = new Set();
 
     for (const [index, entry] of entries.entries()) {
-        if (index > 0) {
-            children.push(
-                new Paragraph({
-                    text: '',
-                    spacing: { before: 200, after: 200 }
-                })
-            );
-        }
-
         const questionNumber = index + 1;
-        children.push(
-            new Paragraph({
-                children: [new TextRun({ text: `${questionNumber}.`, bold: true, size: DOCX_FONT_SIZE })],
-                spacing: { after: 100 }
-            })
-        );
+        const numberCell = new TableCell({
+            width: { size: 700, type: WidthType.DXA },
+            children: [
+                new Paragraph({
+                    children: [new TextRun({ text: `${questionNumber}.`, bold: true, size: DOCX_FONT_SIZE })],
+                    spacing: { after: 100 }
+                })
+            ]
+        });
+
+        const contentParagraphs = [];
 
         if (mode !== 'question-only') {
             const metaParts = [];
@@ -3998,10 +3998,10 @@ async function createPaperExport(entries, options = {}) {
             if (entry.source) metaParts.push(`来源：${entry.source}`);
             metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
             const metaText = `【${metaParts.join(' / ')}】`;
-            children.push(
+            contentParagraphs.push(
                 new Paragraph({
                     children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
-                    spacing: { after: 200 }
+                    spacing: { after: 150 }
                 })
             );
         }
@@ -4015,7 +4015,7 @@ async function createPaperExport(entries, options = {}) {
                 paragraphSpacing: { after: 200 }
             });
             if (questionParagraph) {
-                children.push(questionParagraph);
+                contentParagraphs.push(questionParagraph);
             }
         } else {
             const questionImageUrl = entry.questionImageResizedUrl || entry.questionImageUrl;
@@ -4046,27 +4046,47 @@ async function createPaperExport(entries, options = {}) {
             });
 
             if (questionImage) {
-                children.push(
+                contentParagraphs.push(
                     new Paragraph({
                         children: [questionImage],
                         spacing: { after: 200 }
                     })
                 );
-            } else {
-                const fallbackParagraph = createPlainParagraph('', {
-                    skipWhenEmpty: false,
-                    fallback: '（未提供）',
-                    fontSize: DOCX_FONT_SIZE,
-                    paragraphSpacing: { after: 200 }
-                });
-                if (fallbackParagraph) {
-                    children.push(fallbackParagraph);
-                }
             }
         }
+
+        if (!contentParagraphs.length) {
+            const fallbackParagraph = createPlainParagraph('', {
+                skipWhenEmpty: false,
+                fallback: '（未提供）',
+                fontSize: DOCX_FONT_SIZE,
+                paragraphSpacing: { after: 200 }
+            });
+            if (fallbackParagraph) {
+                contentParagraphs.push(fallbackParagraph);
+            }
+        }
+
+        rows.push(
+            new TableRow({
+                children: [
+                    numberCell,
+                    new TableCell({
+                        width: { size: 9300, type: WidthType.DXA },
+                        children: contentParagraphs
+                    })
+                ]
+            })
+        );
     }
 
-    doc.addSection({ children });
+    const table = new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        columnWidths: [700, 9300],
+        rows
+    });
+
+    doc.addSection({ children: [table] });
 
     const buffer = await Packer.toBuffer(doc);
     return { buffer, updatedEntryIds: Array.from(updatedEntryIds) };
