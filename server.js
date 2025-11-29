@@ -4146,15 +4146,15 @@ function extractBalancedBraces(text, startIndex) {
 function replaceLatexFractions(text) {
     if (!text) return '';
 
+    const fractionRegex = /\\(?:dfrac|tfrac|frac)\s*/g;
     let result = '';
     let cursor = 0;
+    let match;
 
-    while (cursor < text.length) {
-        const fracIndex = text.indexOf('\\frac', cursor);
-        if (fracIndex === -1) break;
-
+    while ((match = fractionRegex.exec(text))) {
+        const fracIndex = match.index;
         result += text.slice(cursor, fracIndex);
-        let nextIndex = fracIndex + '\\frac'.length;
+        let nextIndex = fractionRegex.lastIndex;
 
         while (nextIndex < text.length && /\s/.test(text[nextIndex])) {
             nextIndex += 1;
@@ -4163,6 +4163,7 @@ function replaceLatexFractions(text) {
         if (text[nextIndex] !== '{') {
             result += text.slice(fracIndex, nextIndex);
             cursor = nextIndex;
+            fractionRegex.lastIndex = cursor;
             continue;
         }
 
@@ -4170,6 +4171,7 @@ function replaceLatexFractions(text) {
         if (!numerator) {
             result += text.slice(fracIndex, nextIndex + 1);
             cursor = nextIndex + 1;
+            fractionRegex.lastIndex = cursor;
             continue;
         }
 
@@ -4181,6 +4183,7 @@ function replaceLatexFractions(text) {
         if (text[nextIndex] !== '{') {
             result += text.slice(fracIndex, nextIndex);
             cursor = nextIndex;
+            fractionRegex.lastIndex = cursor;
             continue;
         }
 
@@ -4188,11 +4191,13 @@ function replaceLatexFractions(text) {
         if (!denominator) {
             result += text.slice(fracIndex, nextIndex + 1);
             cursor = nextIndex + 1;
+            fractionRegex.lastIndex = cursor;
             continue;
         }
 
         result += `(${numerator.content})/(${denominator.content})`;
         cursor = denominator.endIndex + 1;
+        fractionRegex.lastIndex = cursor;
     }
 
     return result + text.slice(cursor);
