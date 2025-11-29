@@ -14,7 +14,18 @@ if (typeof dns.setDefaultResultOrder === 'function') {
         console.warn('Failed to set DNS default result order', error);
     }
 }
-const { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } = require('docx');
+const {
+    Document,
+    Packer,
+    Paragraph,
+    TextRun,
+    HeadingLevel,
+    ImageRun,
+    Math,
+    MathFraction,
+    MathRun,
+    MathRadical
+} = require('docx');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -4143,6 +4154,26 @@ function extractBalancedBraces(text, startIndex) {
     return null;
 }
 
+function normalizeMathTextBase(text, options = {}) {
+    const { convertFractions = true, trimWhitespace = true } = options;
+    if (!text) return '';
+
+    let normalized = text.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
+    if (convertFractions) {
+        normalized = replaceLatexFractions(normalized);
+    }
+    normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√($1)');
+    normalized = normalized.replace(/\\cdot/g, '·');
+    normalized = replaceLatexSymbols(normalized);
+    normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
+    normalized = replaceWithScript(normalized, /_\{([^}]+)\}|_(\S)/g, SUBSCRIPT_MAP);
+    normalized = normalized.replace(/\s+/g, ' ');
+    if (trimWhitespace) {
+        normalized = normalized.trim();
+    }
+    return normalized;
+}
+
 function replaceLatexFractions(text) {
     if (!text) return '';
 
@@ -4204,6 +4235,7 @@ function replaceLatexFractions(text) {
 }
 
 function normalizeMathText(text) {
+    return normalizeMathTextBase(text, { convertFractions: true, trimWhitespace: true });
     if (!text) return '';
     let normalized = text;
     normalized = normalized.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
@@ -4221,31 +4253,238 @@ function normalizeMathText(text) {
     return normalized;
 }
 
-function richTextToDocxText(html) {
+function buildMathComponents(text) {
+    const components = [];
+    if (!text) return components;
+
+    const content = text.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
+    const commandRegex = /\\(dfrac|tfrac|frac|sqrt)\s*/g;
+    let cursor = 0;
+    let match;
+
+    const appendMathText = (segment) => {
+        const normalized = normalizeMathTextBase(segment, { convertFractions: false, trimWhitespace: false });
+        if (normalized) {
+            components.push(new MathRun(normalized));
+        }
+    };
+
+    while ((match = commandRegex.exec(content))) {
+        const cmdIndex = match.index;
+        const command = match[1];
+        appendMathText(content.slice(cursor, cmdIndex));
+        let nextIndex = commandRegex.lastIndex;
+
+        while (nextIndex < content.length && /\s/.test(content[nextIndex])) {
+            nextIndex += 1;
+        }
+
+        if (content[nextIndex] !== '{') {
+            appendMathText(content.slice(cmdIndex, nextIndex));
+            cursor = nextIndex;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        if (command === 'sqrt') {
+            const radicand = extractBalancedBraces(content, nextIndex);
+            if (!radicand) {
+                appendMathText(content.slice(cmdIndex, nextIndex + 1));
+                cursor = nextIndex + 1;
+                commandRegex.lastIndex = cursor;
+                continue;
+            }
+
+            const radicandComponents = buildMathComponents(radicand.content);
+            components.push(
+                new MathRadical({
+                    children: radicandComponents.length ? radicandComponents : [new MathRun('')]
+                })
+            );
+            cursor = radicand.endIndex + 1;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        const numerator = extractBalancedBraces(content, nextIndex);
+        if (!numerator) {
+            appendMathText(content.slice(cmdIndex, nextIndex + 1));
+            cursor = nextIndex + 1;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        nextIndex = numerator.endIndex + 1;
+        while (nextIndex < content.length && /\s/.test(content[nextIndex])) {
+            nextIndex += 1;
+        }
+
+        if (content[nextIndex] !== '{') {
+            appendMathText(content.slice(cmdIndex, nextIndex));
+            cursor = nextIndex;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        const denominator = extractBalancedBraces(content, nextIndex);
+        if (!denominator) {
+            appendMathText(content.slice(cmdIndex, nextIndex + 1));
+            cursor = nextIndex + 1;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        const numeratorComponents = buildMathComponents(numerator.content);
+        const denominatorComponents = buildMathComponents(denominator.content);
+        components.push(
+            new MathFraction({
+                numerator: numeratorComponents.length ? numeratorComponents : [new MathRun('')],
+                denominator: denominatorComponents.length ? denominatorComponents : [new MathRun('')]
+            })
+        );
+        cursor = denominator.endIndex + 1;
+        commandRegex.lastIndex = cursor;
+    }
+
+    appendMathText(content.slice(cursor));
+    return components;
+}
+
+function convertLineToDocxChildren(line, textRunOptions = {}) {
+    const children = [];
+    const content = (line || '').replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
+    const commandRegex = /\\(dfrac|tfrac|frac|sqrt)\s*/g;
+    let cursor = 0;
+    let match;
+
+    const appendText = (segment) => {
+        const normalized = normalizeMathTextBase(segment, { convertFractions: false, trimWhitespace: false });
+        if (normalized) {
+            children.push(new TextRun({ text: normalized, ...textRunOptions }));
+        }
+    };
+
+    while ((match = commandRegex.exec(content))) {
+        const cmdIndex = match.index;
+        const command = match[1];
+        appendText(content.slice(cursor, cmdIndex));
+        let nextIndex = commandRegex.lastIndex;
+
+        while (nextIndex < content.length && /\s/.test(content[nextIndex])) {
+            nextIndex += 1;
+        }
+
+        if (content[nextIndex] !== '{') {
+            appendText(content.slice(cmdIndex, nextIndex));
+            cursor = nextIndex;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        if (command === 'sqrt') {
+            const radicand = extractBalancedBraces(content, nextIndex);
+            if (!radicand) {
+                appendText(content.slice(cmdIndex, nextIndex + 1));
+                cursor = nextIndex + 1;
+                commandRegex.lastIndex = cursor;
+                continue;
+            }
+
+            const radicandComponents = buildMathComponents(radicand.content);
+            children.push(
+                new Math({
+                    children: [
+                        new MathRadical({
+                            children: radicandComponents.length ? radicandComponents : [new MathRun('')]
+                        })
+                    ]
+                })
+            );
+            cursor = radicand.endIndex + 1;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        const numerator = extractBalancedBraces(content, nextIndex);
+        if (!numerator) {
+            appendText(content.slice(cmdIndex, nextIndex + 1));
+            cursor = nextIndex + 1;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        nextIndex = numerator.endIndex + 1;
+        while (nextIndex < content.length && /\s/.test(content[nextIndex])) {
+            nextIndex += 1;
+        }
+
+        if (content[nextIndex] !== '{') {
+            appendText(content.slice(cmdIndex, nextIndex));
+            cursor = nextIndex;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        const denominator = extractBalancedBraces(content, nextIndex);
+        if (!denominator) {
+            appendText(content.slice(cmdIndex, nextIndex + 1));
+            cursor = nextIndex + 1;
+            commandRegex.lastIndex = cursor;
+            continue;
+        }
+
+        const numeratorComponents = buildMathComponents(numerator.content);
+        const denominatorComponents = buildMathComponents(denominator.content);
+        children.push(
+            new Math({
+                children: [
+                    new MathFraction({
+                        numerator: numeratorComponents.length ? numeratorComponents : [new MathRun('')],
+                        denominator: denominatorComponents.length ? denominatorComponents : [new MathRun('')]
+                    })
+                ]
+            })
+        );
+        cursor = denominator.endIndex + 1;
+        commandRegex.lastIndex = cursor;
+    }
+
+    appendText(content.slice(cursor));
+    return children;
+}
+
+function richTextToDocxRuns(html, options = {}) {
+    const { textRunOptions = {} } = options;
     const plain = richTextToPlainText(html);
-    if (!plain) return '';
-    return normalizeMathText(plain);
+    if (!plain) return [];
+
+    const lines = plain.split(/\r?\n/);
+    const runs = [];
+
+    lines.forEach((line, index) => {
+        if (index > 0) {
+            runs.push(new TextRun({ break: 1 }));
+        }
+        const children = convertLineToDocxChildren(line, textRunOptions);
+        runs.push(...children);
+    });
+
+    return runs;
 }
 
 function createLabeledParagraph(label, text, options = {}) {
     const { skipWhenEmpty = false, fallback = '（未填写）' } = options;
-    const value = richTextToDocxText(text);
-    if (!value && skipWhenEmpty) {
+    const valueRuns = richTextToDocxRuns(text);
+    if (!valueRuns.length && skipWhenEmpty) {
         return null;
     }
 
-    const display = value || fallback;
-    const lines = String(display).split(/\r?\n/);
     const runs = [new TextRun({ text: label, bold: true })];
-
-    lines.forEach((line, index) => {
-        if (index === 0) {
-            runs.push(new TextRun({ text: line }));
-        } else {
-            runs.push(new TextRun({ break: 1 }));
-            runs.push(new TextRun({ text: line }));
-        }
-    });
+    if (valueRuns.length) {
+        runs.push(...valueRuns);
+    } else {
+        runs.push(new TextRun({ text: fallback }));
+    }
 
     return new Paragraph({ children: runs });
 }
@@ -4258,29 +4497,20 @@ function createPlainParagraph(text, options = {}) {
         font = null,
         paragraphSpacing = null
     } = options;
-    const value = richTextToDocxText(text);
-    if (!value && skipWhenEmpty) {
+    const textRunOptions = {};
+    if (fontSize) {
+        textRunOptions.size = fontSize;
+    }
+    if (font) {
+        textRunOptions.font = font;
+    }
+
+    const valueRuns = richTextToDocxRuns(text, { textRunOptions });
+    if (!valueRuns.length && skipWhenEmpty) {
         return null;
     }
 
-    const display = value || fallback;
-    const lines = String(display).split(/\r?\n/);
-    const runs = [];
-
-    lines.forEach((line, index) => {
-        if (index > 0) {
-            runs.push(new TextRun({ break: 1 }));
-        }
-        const runOptions = { text: line };
-        if (fontSize) {
-            runOptions.size = fontSize;
-        }
-        if (font) {
-            runOptions.font = font;
-        }
-        runs.push(new TextRun(runOptions));
-    });
-
+    const runs = valueRuns.length ? valueRuns : [new TextRun({ text: fallback, ...textRunOptions })];
     const paragraphOptions = { children: runs };
     if (paragraphSpacing) {
         paragraphOptions.spacing = paragraphSpacing;
