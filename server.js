@@ -3970,6 +3970,14 @@ async function createPaperExport(entries, options = {}) {
             );
         }
 
+        const questionNumber = index + 1;
+        children.push(
+            new Paragraph({
+                children: [new TextRun({ text: `${questionNumber}.`, bold: true, size: DOCX_FONT_SIZE })],
+                spacing: { after: 100 }
+            })
+        );
+
         if (mode !== 'question-only') {
             const metaParts = [];
             if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
@@ -4195,7 +4203,7 @@ function normalizeMathText(text) {
     let normalized = text;
     normalized = normalized.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
     normalized = replaceLatexFractions(normalized);
-    normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√($1)');
+    normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
     normalized = normalized.replace(/\\cdot/g, '·');
     normalized = replaceLatexSymbols(normalized);
     normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
@@ -4421,7 +4429,8 @@ function sanitizeRichText(value) {
 function richTextToPlainText(html) {
     if (!html) return '';
     const safe = sanitizeRichText(html);
-    const replaced = safe
+    const withEntities = safe.replace(/&nbsp;/gi, ' ');
+    const replaced = withEntities
         .replace(/<\s*br\s*\/?\s*>/gi, '\n')
         .replace(/<\/(p|div)>/gi, '\n')
         .replace(/<\s*li\s*>/gi, '\n• ')
