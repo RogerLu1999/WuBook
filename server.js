@@ -3999,51 +3999,28 @@ async function createPaperExport(entries, options = {}) {
 
     const mode = options.mode === 'question-only' ? 'question-only' : 'detailed';
     const doc = new Document({ sections: [] });
-    const rows = [];
+    const children = [];
     const updatedEntryIds = new Set();
 
     for (const [index, entry] of entries.entries()) {
         const questionNumber = index + 1;
-        const numberCell = new TableCell({
-            width: { size: 700, type: WidthType.DXA },
-            children: [
-                new Paragraph({
-                    children: [new TextRun({ text: `${questionNumber}.`, bold: true, size: DOCX_FONT_SIZE })],
-                    spacing: { after: 100 }
-                })
-            ]
-        });
-
-        const contentParagraphs = [];
-
-        if (mode !== 'question-only') {
-            const metaParts = [];
-            if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
-            if (entry.subject) metaParts.push(entry.subject);
-            if (entry.semester) metaParts.push(entry.semester);
-            if (entry.questionType) metaParts.push(entry.questionType);
-            if (entry.source) metaParts.push(`来源：${entry.source}`);
-            metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
-            const metaText = `【${metaParts.join(' / ')}】`;
-            contentParagraphs.push(
-                new Paragraph({
-                    children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
-                    spacing: { after: 150 }
-                })
-            );
-        }
+        const questionParagraphs = [];
+        const createNumberPrefix = () => new TextRun({ text: `${questionNumber}. `, bold: true, size: DOCX_FONT_SIZE });
 
         const hasQuestionText = hasRichTextContent(entry.questionText);
         if (hasQuestionText) {
-            const questionParagraph = createPlainParagraph(entry.questionText, {
-                skipWhenEmpty: false,
-                fallback: '（未提供）',
-                fontSize: DOCX_FONT_SIZE,
-                paragraphSpacing: { after: 200 }
+            const questionRuns = richTextToDocxRuns(entry.questionText, {
+                textRunOptions: { size: DOCX_FONT_SIZE }
             });
-            if (questionParagraph) {
-                contentParagraphs.push(questionParagraph);
-            }
+            const paragraphChildren = questionRuns.length
+                ? [createNumberPrefix(), ...questionRuns]
+                : [createNumberPrefix(), new TextRun({ text: '（未提供）', size: DOCX_FONT_SIZE })];
+            questionParagraphs.push(
+                new Paragraph({
+                    children: paragraphChildren,
+                    spacing: { after: 200 }
+                })
+            );
         } else {
             const questionImageUrl = entry.questionImageResizedUrl || entry.questionImageUrl;
             let ensureResult = { scale: parseScale(entry.questionImageScale), updated: false };
@@ -4073,47 +4050,46 @@ async function createPaperExport(entries, options = {}) {
             });
 
             if (questionImage) {
-                contentParagraphs.push(
+                questionParagraphs.push(
                     new Paragraph({
-                        children: [questionImage],
+                        children: [createNumberPrefix(), questionImage],
                         spacing: { after: 200 }
                     })
                 );
             }
         }
 
-        if (!contentParagraphs.length) {
-            const fallbackParagraph = createPlainParagraph('', {
-                skipWhenEmpty: false,
-                fallback: '（未提供）',
-                fontSize: DOCX_FONT_SIZE,
-                paragraphSpacing: { after: 200 }
-            });
-            if (fallbackParagraph) {
-                contentParagraphs.push(fallbackParagraph);
-            }
+        if (!questionParagraphs.length) {
+            questionParagraphs.push(
+                new Paragraph({
+                    children: [createNumberPrefix(), new TextRun({ text: '（未提供）', size: DOCX_FONT_SIZE })],
+                    spacing: { after: 200 }
+                })
+            );
         }
 
-        rows.push(
-            new TableRow({
-                children: [
-                    numberCell,
-                    new TableCell({
-                        width: { size: 9300, type: WidthType.DXA },
-                        children: contentParagraphs
-                    })
-                ]
-            })
-        );
+        if (mode !== 'question-only') {
+            const metaParts = [];
+            if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
+            if (entry.subject) metaParts.push(entry.subject);
+            if (entry.semester) metaParts.push(entry.semester);
+            if (entry.questionType) metaParts.push(entry.questionType);
+            if (entry.source) metaParts.push(`来源：${entry.source}`);
+            metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
+            const metaText = `【${metaParts.join(' / ')}】`;
+            questionParagraphs.push(
+                new Paragraph({
+                    children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
+                    spacing: { after: 150 }
+                })
+            );
+        }
+
+        questionParagraphs.push(new Paragraph({ text: '' }));
+        children.push(...questionParagraphs);
     }
 
-    const table = new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        columnWidths: [700, 9300],
-        rows
-    });
-
-    doc.addSection({ children: [table] });
+    doc.addSection({ children });
 
     const buffer = await Packer.toBuffer(doc);
     return { buffer, updatedEntryIds: Array.from(updatedEntryIds) };
