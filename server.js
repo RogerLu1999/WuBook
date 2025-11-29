@@ -4203,7 +4203,7 @@ function normalizeMathText(text) {
     let normalized = text;
     normalized = normalized.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
     normalized = replaceLatexFractions(normalized);
-    normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√$1');
+    normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√($1)');
     normalized = normalized.replace(/\\cdot/g, '·');
     normalized = replaceLatexSymbols(normalized);
     normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
