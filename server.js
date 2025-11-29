@@ -4109,11 +4109,92 @@ function replaceLatexSymbols(text) {
     });
 }
 
+function extractBalancedBraces(text, startIndex) {
+    if (!text || startIndex < 0 || startIndex >= text.length || text[startIndex] !== '{') {
+        return null;
+    }
+
+    let depth = 0;
+    for (let i = startIndex; i < text.length; i++) {
+        const char = text[i];
+        if (char === '\\') {
+            i += 1;
+            continue;
+        }
+
+        if (char === '{') {
+            depth += 1;
+        } else if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return { content: text.slice(startIndex + 1, i), endIndex: i };
+            }
+        }
+    }
+
+    return null;
+}
+
+function replaceLatexFractions(text) {
+    if (!text) return '';
+
+    let result = '';
+    let cursor = 0;
+
+    while (cursor < text.length) {
+        const fracIndex = text.indexOf('\\frac', cursor);
+        if (fracIndex === -1) break;
+
+        result += text.slice(cursor, fracIndex);
+        let nextIndex = fracIndex + '\\frac'.length;
+
+        while (nextIndex < text.length && /\s/.test(text[nextIndex])) {
+            nextIndex += 1;
+        }
+
+        if (text[nextIndex] !== '{') {
+            result += text.slice(fracIndex, nextIndex);
+            cursor = nextIndex;
+            continue;
+        }
+
+        const numerator = extractBalancedBraces(text, nextIndex);
+        if (!numerator) {
+            result += text.slice(fracIndex, nextIndex + 1);
+            cursor = nextIndex + 1;
+            continue;
+        }
+
+        nextIndex = numerator.endIndex + 1;
+        while (nextIndex < text.length && /\s/.test(text[nextIndex])) {
+            nextIndex += 1;
+        }
+
+        if (text[nextIndex] !== '{') {
+            result += text.slice(fracIndex, nextIndex);
+            cursor = nextIndex;
+            continue;
+        }
+
+        const denominator = extractBalancedBraces(text, nextIndex);
+        if (!denominator) {
+            result += text.slice(fracIndex, nextIndex + 1);
+            cursor = nextIndex + 1;
+            continue;
+        }
+
+        result += `(${numerator.content})/(${denominator.content})`;
+        cursor = denominator.endIndex + 1;
+    }
+
+    return result + text.slice(cursor);
+}
+
 function normalizeMathText(text) {
     if (!text) return '';
     let normalized = text;
     normalized = normalized.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
-    normalized = normalized.replace(/\\frac\s*\{([^}]*)\}\s*\{([^}]*)\}/g, '($1)/($2)');
+    normalized = replaceLatexFractions(normalized);
     normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√($1)');
     normalized = normalized.replace(/\\cdot/g, '·');
     normalized = replaceLatexSymbols(normalized);
