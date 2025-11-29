@@ -21,7 +21,7 @@ const {
     TextRun,
     HeadingLevel,
     ImageRun,
-    Math,
+    Math: DocxMath,
     MathFraction,
     MathRun,
     MathRadical
@@ -4392,7 +4392,7 @@ function convertLineToDocxChildren(line, textRunOptions = {}) {
 
             const radicandComponents = buildMathComponents(radicand.content);
             children.push(
-                new Math({
+                new DocxMath({
                     children: [
                         new MathRadical({
                             children: radicandComponents.length ? radicandComponents : [new MathRun('')]
@@ -4436,7 +4436,7 @@ function convertLineToDocxChildren(line, textRunOptions = {}) {
         const numeratorComponents = buildMathComponents(numerator.content);
         const denominatorComponents = buildMathComponents(denominator.content);
         children.push(
-            new Math({
+            new DocxMath({
                 children: [
                     new MathFraction({
                         numerator: numeratorComponents.length ? numeratorComponents : [new MathRun('')],
