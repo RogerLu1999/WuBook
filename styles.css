@@ -1485,6 +1485,14 @@ select:focus {
     width: 3rem;
 }
 
+.entries-table__code-col,
+.entry-cell--code {
+    width: 3.5rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    text-align: center;
+}
+
 .entries-table__actions-col {
     width: 9rem;
 }
