@@ -4070,7 +4070,7 @@ async function createPaperExport(entries, options = {}) {
                             children: [
                                 new TableCell({
                                     borders: invisibleBorders,
-                                    width: { size: 8, type: WidthType.PERCENTAGE },
+                                    width: { size: 3, type: WidthType.PERCENTAGE },
                                     children: [
                                         new Paragraph({
                                             children: [createNumberPrefix()],
@@ -4080,7 +4080,7 @@ async function createPaperExport(entries, options = {}) {
                                 }),
                                 new TableCell({
                                     borders: invisibleBorders,
-                                    width: { size: 92, type: WidthType.PERCENTAGE },
+                                    width: { size: 97, type: WidthType.PERCENTAGE },
                                     children: [
                                         new Paragraph({
                                             children: [questionImage],
