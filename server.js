@@ -28,7 +28,8 @@ const {
     Table,
     TableCell,
     TableRow,
-    WidthType
+    WidthType,
+    BorderStyle
 } = require('docx');
 
 const app = express();
@@ -4050,12 +4051,50 @@ async function createPaperExport(entries, options = {}) {
             });
 
             if (questionImage) {
-                questionParagraphs.push(
-                    new Paragraph({
-                        children: [createNumberPrefix(), questionImage],
-                        spacing: { after: 200 }
-                    })
-                );
+                const noBorder = () => ({ style: BorderStyle.NONE, size: 0, color: 'FFFFFF' });
+                const invisibleBorders = {
+                    top: noBorder(),
+                    bottom: noBorder(),
+                    left: noBorder(),
+                    right: noBorder(),
+                    insideHorizontal: noBorder(),
+                    insideVertical: noBorder()
+                };
+
+                const questionTable = new Table({
+                    width: { size: 100, type: WidthType.PERCENTAGE },
+                    borders: invisibleBorders,
+                    margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                    rows: [
+                        new TableRow({
+                            children: [
+                                new TableCell({
+                                    borders: invisibleBorders,
+                                    width: { size: 8, type: WidthType.PERCENTAGE },
+                                    children: [
+                                        new Paragraph({
+                                            children: [createNumberPrefix()],
+                                            spacing: { after: 0 }
+                                        })
+                                    ]
+                                }),
+                                new TableCell({
+                                    borders: invisibleBorders,
+                                    width: { size: 92, type: WidthType.PERCENTAGE },
+                                    children: [
+                                        new Paragraph({
+                                            children: [questionImage],
+                                            spacing: { after: 0 }
+                                        })
+                                    ]
+                                })
+                            ]
+                        })
+                    ]
+                });
+
+                questionParagraphs.push(questionTable);
+                questionParagraphs.push(new Paragraph({ text: '', spacing: { after: 200 } }));
             }
         }
 
