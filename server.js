@@ -4008,6 +4008,23 @@ async function createPaperExport(entries, options = {}) {
         const questionParagraphs = [];
         const createNumberPrefix = () => new TextRun({ text: `${questionNumber}. `, bold: true, size: DOCX_FONT_SIZE });
 
+        if (mode !== 'question-only') {
+            const metaParts = [];
+            if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
+            if (entry.subject) metaParts.push(entry.subject);
+            if (entry.semester) metaParts.push(entry.semester);
+            if (entry.questionType) metaParts.push(entry.questionType);
+            if (entry.source) metaParts.push(`来源：${entry.source}`);
+            metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
+            const metaText = `【${metaParts.join(' / ')}】`;
+            questionParagraphs.push(
+                new Paragraph({
+                    children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
+                    spacing: { after: 150 }
+                })
+            );
+        }
+
         const hasQuestionText = hasRichTextContent(entry.questionText);
         if (hasQuestionText) {
             const questionRuns = richTextToDocxRuns(entry.questionText, {
@@ -4103,23 +4120,6 @@ async function createPaperExport(entries, options = {}) {
                 new Paragraph({
                     children: [createNumberPrefix(), new TextRun({ text: '（未提供）', size: DOCX_FONT_SIZE })],
                     spacing: { after: 200 }
-                })
-            );
-        }
-
-        if (mode !== 'question-only') {
-            const metaParts = [];
-            if (entry.questionCode) metaParts.push(`编号：${entry.questionCode}`);
-            if (entry.subject) metaParts.push(entry.subject);
-            if (entry.semester) metaParts.push(entry.semester);
-            if (entry.questionType) metaParts.push(entry.questionType);
-            if (entry.source) metaParts.push(`来源：${entry.source}`);
-            metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
-            const metaText = `【${metaParts.join(' / ')}】`;
-            questionParagraphs.push(
-                new Paragraph({
-                    children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
-                    spacing: { after: 150 }
                 })
             );
         }
