@@ -2119,6 +2119,10 @@ select:focus {
     margin-top: 1rem;
 }
 
+.multi-ai-status.is-warning {
+    color: #b45309;
+}
+
 .multi-ai-section {
     margin-top: 1.5rem;
 }
@@ -2141,6 +2145,11 @@ select:focus {
 .multi-ai-progress__item.is-success {
     border-color: #16a34a;
     background: #ecfdf3;
+}
+
+.multi-ai-progress__item.is-warning {
+    border-color: #f59e0b;
+    background: #fffbeb;
 }
 
 .multi-ai-progress__item.is-error {

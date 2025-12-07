@@ -2480,44 +2480,146 @@ async function runMultiAiWorkflow({ question, providers, imageUrl, imageBase64 }
 
     steps.push({ stage: 'initial', message: '正在进行第一步：三个 AI 初步答题…' });
     const initialAnswers = [];
+    const failedProviders = [];
     for (const provider of providers) {
         const userPrompt = `${questionContext}\n\n请独立审题并给出解题思路与答案。`;
-        const output = await callMultiAiProvider(provider, baseSystemPrompt, userPrompt, 'multi-ai-initial');
-        initialAnswers.push({ provider: provider.id, name: provider.label, output: output?.trim() || '' });
+        try {
+            const output = await callMultiAiProvider(provider, baseSystemPrompt, userPrompt, 'multi-ai-initial');
+            initialAnswers.push({
+                provider: provider.id,
+                name: provider.label,
+                output: output?.trim() || '',
+                status: 'success'
+            });
+        } catch (error) {
+            console.error(`Initial round failed for provider ${provider.id}`, error);
+            const errorMessage = error?.message || '调用失败';
+            failedProviders.push({ provider: provider.id, name: provider.label, stage: 'initial', error: errorMessage });
+            initialAnswers.push({
+                provider: provider.id,
+                name: provider.label,
+                output: '',
+                status: 'error',
+                error: errorMessage
+            });
+        }
     }
-    steps.push({ stage: 'initial', message: '第一步完成，三个 AI 已提交初步答案。', status: 'success' });
+    const initialSuccessCount = initialAnswers.filter((item) => item.status !== 'error').length;
+    if (initialSuccessCount === 0) {
+        steps.push({ stage: 'initial', message: '第一步失败，所有 AI 均未返回结果。', status: 'error' });
+        throw new Error('所有 AI 在第一步均未返回结果。');
+    }
+    steps.push({
+        stage: 'initial',
+        message: '第一步完成，AI 初步答案已收集。',
+        status: failedProviders.length > 0 ? 'warning' : 'success',
+        detail: failedProviders.length > 0 ? `以下 AI 在第一步调用失败：${failedProviders
+              .map((item) => item.name || item.provider)
+              .join('、')}` : undefined
+    });
 
     steps.push({ stage: 'review', message: '正在进行第二步：带入初步答案做交叉复核…' });
     const reviewAnswers = [];
     const firstRoundText = initialAnswers
-        .map((item, index) => `AI${index + 1}（${item.name}）的回答：\n${item.output || '未返回'}`)
+        .map((item, index) => {
+            if (item.status === 'error') {
+                return `AI${index + 1}（${item.name}）的回答：\n未返回（${item.error || '调用失败'}）`;
+            }
+            return `AI${index + 1}（${item.name}）的回答：\n${item.output || '未返回'}`;
+        })
         .join('\n\n');
-    for (const provider of providers) {
-        const userPrompt = `${questionContext}\n\n以下是第一轮的所有回答：\n${firstRoundText}\n\n请结合题目和这些回答重新做出你的判断：\n- 指出其他 AI 的遗漏、偏差或合理之处；\n- 如有必要，可修正自己的答案；\n- 给出明确的结论。`;
-        const output = await callMultiAiProvider(provider, baseSystemPrompt, userPrompt, 'multi-ai-review');
-        reviewAnswers.push({ provider: provider.id, name: provider.label, output: output?.trim() || '' });
-    }
-    steps.push({ stage: 'review', message: '第二步完成，已完成互查复核。', status: 'success' });
+    const reviewProviders = providers.filter((provider) =>
+        initialAnswers.some((item) => item.provider === provider.id && item.status !== 'error')
+    );
 
-    const summaryProvider = providers[0];
+    for (const provider of reviewProviders) {
+        const userPrompt = `${questionContext}\n\n以下是第一轮的所有回答：\n${firstRoundText}\n\n请结合题目和这些回答重新做出你的判断：\n- 指出其他 AI 的遗漏、偏差或合理之处；\n- 如有必要，可修正自己的答案；\n- 给出明确的结论。`;
+        try {
+            const output = await callMultiAiProvider(provider, baseSystemPrompt, userPrompt, 'multi-ai-review');
+            reviewAnswers.push({
+                provider: provider.id,
+                name: provider.label,
+                output: output?.trim() || '',
+                status: 'success'
+            });
+        } catch (error) {
+            console.error(`Review round failed for provider ${provider.id}`, error);
+            const errorMessage = error?.message || '调用失败';
+            failedProviders.push({ provider: provider.id, name: provider.label, stage: 'review', error: errorMessage });
+            reviewAnswers.push({
+                provider: provider.id,
+                name: provider.label,
+                output: '',
+                status: 'error',
+                error: errorMessage
+            });
+        }
+    }
+    const reviewSuccessCount = reviewAnswers.filter((item) => item.status !== 'error').length;
+    if (reviewSuccessCount === 0) {
+        steps.push({ stage: 'review', message: '第二步失败，没有 AI 完成复核。', status: 'error' });
+        throw new Error('所有 AI 在第二步均未返回结果。');
+    }
+    steps.push({
+        stage: 'review',
+        message: '第二步完成，已完成互查复核。',
+        status: failedProviders.length > 0 ? 'warning' : 'success',
+        detail:
+            failedProviders.length > 0
+                ? `以下 AI 调用失败并已跳过：${[...new Set(failedProviders.map((item) => item.name || item.provider))].join(
+                      '、'
+                  )}`
+                : undefined
+    });
+
+    const summaryProvider =
+        reviewProviders.find((provider) =>
+            reviewAnswers.some((item) => item.provider === provider.id && item.status !== 'error')
+        ) || providers[0];
     steps.push({ stage: 'summary', message: '正在进行第三步：AI1 汇总观点…' });
     const secondRoundText = reviewAnswers
-        .map((item, index) => `AI${index + 1}（${item.name}）的复核结果：\n${item.output || '未返回'}`)
+        .map((item, index) => {
+            if (item.status === 'error') {
+                return `AI${index + 1}（${item.name}）的复核结果：\n未返回（${item.error || '调用失败'}）`;
+            }
+            return `AI${index + 1}（${item.name}）的复核结果：\n${item.output || '未返回'}`;
+        })
         .join('\n\n');
     const summaryPrompt = `${questionContext}\n\n以下是第二轮互查后的结果：\n${secondRoundText}\n\n请作为 AI1 给用户做最终总结：\n- 用小结指出每个 AI 在第二轮的要点；\n- 说明是否出现共识或分歧；\n- 给出你的最终建议，并提示用户是否需要自行进一步检查。`;
-    const summary = await callMultiAiProvider(
-        summaryProvider,
-        baseSystemPrompt,
-        summaryPrompt,
-        'multi-ai-summary'
-    );
-    steps.push({ stage: 'summary', message: '第三步完成，已生成总结。', status: 'success' });
+
+    let summary = '';
+    try {
+        summary = await callMultiAiProvider(
+            summaryProvider,
+            baseSystemPrompt,
+            summaryPrompt,
+            'multi-ai-summary'
+        );
+        steps.push({ stage: 'summary', message: '第三步完成，已生成总结。', status: 'success' });
+    } catch (error) {
+        console.error('Summary round failed', error);
+        const errorMessage = error?.message || '调用失败';
+        failedProviders.push({
+            provider: summaryProvider?.id || 'unknown',
+            name: summaryProvider?.label || 'AI1',
+            stage: 'summary',
+            error: errorMessage
+        });
+        steps.push({
+            stage: 'summary',
+            message: '第三步部分完成：汇总失败。',
+            status: 'warning',
+            detail: `汇总阶段调用失败：${summaryProvider?.label || 'AI1'}（${errorMessage}）`
+        });
+        summary = '汇总阶段 AI 调用失败，请参考前面两轮的详细回答。';
+    }
 
     return {
         steps,
         initialAnswers,
         reviewAnswers,
-        summary: (summary || '').trim()
+        summary: (summary || '').trim(),
+        failedProviders
     };
 }
 
