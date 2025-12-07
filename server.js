@@ -467,6 +467,8 @@ app.get('/api/papers', async (req, res) => {
 
 app.post('/api/papers', upload.array('images', 30), async (req, res) => {
     const title = (req.body?.title || '').toString().trim();
+    const subject = (req.body?.subject || '').toString().trim();
+    const semester = (req.body?.semester || '').toString().trim();
     const files = Array.isArray(req.files) ? req.files : [];
 
     if (!title) {
@@ -498,13 +500,21 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
         const paper = {
             id: `paper-${Date.now()}-${randomUUID()}`,
             title,
+            subject,
+            semester,
             createdAt,
             images
         };
 
         papers.unshift(paper);
         await writePaperRepo(papers);
-        await logAction('create-paper', 'success', { id: paper.id, title, images: images.length });
+        await logAction('create-paper', 'success', {
+            id: paper.id,
+            title,
+            subject,
+            semester,
+            images: images.length
+        });
         res.status(201).json(paper);
     } catch (error) {
         console.error('Failed to save paper record', error);
@@ -3558,6 +3568,8 @@ function normalizePaperRecord(raw) {
 
     const createdAt = raw.createdAt || new Date().toISOString();
     const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+    const subject = typeof raw.subject === 'string' ? raw.subject.trim() : '';
+    const semester = typeof raw.semester === 'string' ? raw.semester.trim() : '';
 
     if (!title && !images.length) {
         return null;
@@ -3566,6 +3578,8 @@ function normalizePaperRecord(raw) {
     return {
         id: raw.id || `paper-${Date.now()}-${randomUUID()}`,
         title,
+        subject,
+        semester,
         createdAt,
         images
     };
