@@ -42,7 +42,11 @@ const state = {
         isLoading: false,
         error: '',
         uploadStatus: '',
-        lastLoadedAt: null
+        lastLoadedAt: null,
+        filters: {
+            subject: '',
+            semester: ''
+        }
     },
     formulaRecognition: {
         result: {
@@ -211,11 +215,15 @@ const openPaperRepoPanelLink = document.getElementById('open-paper-repo-panel');
 const closePaperRepoPanelLink = document.getElementById('close-paper-repo-panel');
 const paperRepoForm = document.getElementById('paper-repo-form');
 const paperRepoTitleInput = document.getElementById('paper-repo-title-input');
+const paperRepoSubjectInput = document.getElementById('paper-repo-subject');
+const paperRepoSemesterSelect = document.getElementById('paper-repo-semester');
 const paperRepoImagesInput = document.getElementById('paper-repo-images');
 const paperRepoStatus = document.getElementById('paper-repo-status');
 const paperRepoListStatus = document.getElementById('paper-repo-list-status');
 const paperRepoList = document.getElementById('paper-repo-list');
 const paperRepoRefreshButton = document.getElementById('paper-repo-refresh');
+const paperRepoSubjectFilter = document.getElementById('paper-repo-subject-filter');
+const paperRepoSemesterFilter = document.getElementById('paper-repo-semester-filter');
 
 function sanitizeRichTextHtml(value) {
     if (!value) return '';
@@ -594,6 +602,14 @@ paperRepoTitleInput?.addEventListener('input', () => {
     setPaperRepoStatus('');
 });
 
+paperRepoSubjectInput?.addEventListener('input', () => {
+    setPaperRepoStatus('');
+});
+
+paperRepoSemesterSelect?.addEventListener('change', () => {
+    setPaperRepoStatus('');
+});
+
 paperRepoForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     await submitPaperRepoForm();
@@ -602,6 +618,16 @@ paperRepoForm?.addEventListener('submit', async (event) => {
 paperRepoRefreshButton?.addEventListener('click', async (event) => {
     event.preventDefault();
     await loadPaperRepo({ force: true });
+});
+
+paperRepoSubjectFilter?.addEventListener('change', (event) => {
+    state.paperRepo.filters.subject = event.target.value;
+    renderPaperRepoList();
+});
+
+paperRepoSemesterFilter?.addEventListener('change', (event) => {
+    state.paperRepo.filters.semester = event.target.value;
+    renderPaperRepoList();
 });
 
 photoCheckImageInput?.addEventListener('change', () => {
@@ -6078,13 +6104,83 @@ function normalizePaperRecord(raw) {
     }
 
     const images = Array.isArray(raw.images) ? raw.images.map(normalizePaperImage).filter(Boolean) : [];
+    const subject = typeof raw.subject === 'string' ? raw.subject.trim() : '';
+    const semester = typeof raw.semester === 'string' ? raw.semester.trim() : '';
 
     return {
         id: raw.id || '',
         title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : '未命名试卷',
         createdAt: raw.createdAt || '',
+        subject,
+        semester,
         images
     };
+}
+
+function getFilteredPaperRepoItems() {
+    const { items, filters } = state.paperRepo;
+    const normalizedSubject = (filters.subject || '').toString().trim().toLowerCase();
+    const normalizedSemester = (filters.semester || '').toString().trim().toLowerCase();
+
+    return items.filter((paper) => {
+        const matchesSubject =
+            !normalizedSubject || (paper.subject || '').toString().trim().toLowerCase() === normalizedSubject;
+        const matchesSemester =
+            !normalizedSemester || (paper.semester || '').toString().trim().toLowerCase() === normalizedSemester;
+        return matchesSubject && matchesSemester;
+    });
+}
+
+function populatePaperRepoFilterOptions(items) {
+    if (!paperRepoSubjectFilter || !paperRepoSemesterFilter) return;
+
+    const subjects = new Set();
+    const semesters = new Set();
+
+    items.forEach((item) => {
+        if (item.subject) {
+            subjects.add(item.subject);
+        }
+        if (item.semester) {
+            semesters.add(item.semester);
+        }
+    });
+
+    paperRepoSubjectFilter.innerHTML = '<option value="">全部</option>';
+    Array.from(subjects)
+        .sort((a, b) => collator.compare(a, b))
+        .forEach((subject) => {
+            const option = document.createElement('option');
+            option.value = subject;
+            option.textContent = subject;
+            paperRepoSubjectFilter.append(option);
+        });
+
+    paperRepoSemesterFilter.innerHTML = '<option value="">全部</option>';
+    Array.from(semesters)
+        .sort((a, b) => collator.compare(a, b))
+        .forEach((semester) => {
+            const option = document.createElement('option');
+            option.value = semester;
+            option.textContent = semester;
+            paperRepoSemesterFilter.append(option);
+        });
+
+    if (state.paperRepo.filters.subject && !subjects.has(state.paperRepo.filters.subject)) {
+        state.paperRepo.filters.subject = '';
+    }
+
+    if (state.paperRepo.filters.semester && !semesters.has(state.paperRepo.filters.semester)) {
+        state.paperRepo.filters.semester = '';
+    }
+
+    if (state.paperRepo.filters.subject && subjects.has(state.paperRepo.filters.subject)) {
+        paperRepoSubjectFilter.value = state.paperRepo.filters.subject;
+    }
+
+    if (state.paperRepo.filters.semester && semesters.has(state.paperRepo.filters.semester)) {
+        paperRepoSemesterFilter.value = state.paperRepo.filters.semester;
+    }
 }
 
 function renderPaperRepoList() {
@@ -6092,7 +6188,10 @@ function renderPaperRepoList() {
 
     paperRepoList.innerHTML = '';
 
-    const { items, isLoading, error } = state.paperRepo;
+    const { items, isLoading, error, filters } = state.paperRepo;
+
+    populatePaperRepoFilterOptions(items);
+    const filteredItems = getFilteredPaperRepoItems();
 
     if (isLoading) {
         setPaperRepoListStatus('正在加载试卷列表…');
@@ -6109,10 +6208,16 @@ function renderPaperRepoList() {
         return;
     }
 
+    if (!filteredItems.length) {
+        const hasFilter = Boolean((filters?.subject || '').trim() || (filters?.semester || '').trim());
+        setPaperRepoListStatus(hasFilter ? '没有符合当前筛选条件的试卷。' : '还没有保存的试卷，先上传几张吧。');
+        return;
+    }
+
     setPaperRepoListStatus('');
 
     const fragment = document.createDocumentFragment();
-    items.forEach((paper, index) => {
+    filteredItems.forEach((paper, index) => {
         const card = buildPaperCard(paper, index === 0);
         fragment.appendChild(card);
     });
@@ -6138,6 +6243,22 @@ function buildPaperCard(paper, defaultOpen = false) {
     const count = document.createElement('span');
     count.textContent = `${paper.images.length} 张图片`;
     meta.appendChild(count);
+
+    if (paper.subject) {
+        const subject = document.createElement('span');
+        subject.className = 'paper-card__tag';
+        subject.textContent = paper.subject;
+        subject.title = '学科';
+        meta.appendChild(subject);
+    }
+
+    if (paper.semester) {
+        const semester = document.createElement('span');
+        semester.className = 'paper-card__tag';
+        semester.textContent = paper.semester;
+        semester.title = '学期';
+        meta.appendChild(semester);
+    }
 
     const created = formatDateTimeWithMinutes(paper.createdAt);
     if (created) {
@@ -6229,6 +6350,8 @@ async function submitPaperRepoForm() {
     if (!paperRepoForm) return;
 
     const title = (paperRepoTitleInput?.value || '').toString().trim();
+    const subject = (paperRepoSubjectInput?.value || '').toString().trim();
+    const semester = (paperRepoSemesterSelect?.value || '').toString().trim();
     const files = Array.from(paperRepoImagesInput?.files || []).filter((file) => file && file.size > 0);
 
     if (!title) {
@@ -6252,6 +6375,8 @@ async function submitPaperRepoForm() {
 
     const formData = new FormData();
     formData.append('title', title);
+    formData.append('subject', subject);
+    formData.append('semester', semester);
     files.forEach((file) => {
         formData.append('images', file);
     });

@@ -1957,6 +1957,24 @@ select:focus {
     flex-wrap: wrap;
 }
 
+.paper-repo__list-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.paper-repo__filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-end;
+}
+
+.paper-repo__filters .field {
+    min-width: 150px;
+}
+
 .paper-repo__list {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -2012,6 +2030,15 @@ select:focus {
     gap: 0.6rem;
     color: var(--text-muted);
     font-size: 0.9rem;
+}
+
+.paper-card__tag {
+    background: #eef2ff;
+    color: #4338ca;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    border: 1px solid #e0e7ff;
 }
 
 .paper-card__images {

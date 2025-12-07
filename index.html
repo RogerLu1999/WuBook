@@ -393,6 +393,26 @@
                     <small>给此次上传取一个好记的名字，方便快速定位。</small>
                 </label>
                 <label class="field">
+                    <span>学科</span>
+                    <input
+                        type="text"
+                        id="paper-repo-subject"
+                        name="subject"
+                        list="subject-options"
+                        placeholder="数学、英语…"
+                    />
+                </label>
+                <label class="field">
+                    <span>学期</span>
+                    <select id="paper-repo-semester" name="semester">
+                        <option value="">请选择</option>
+                        <option value="八上" selected>八上</option>
+                        <option value="八下">八下</option>
+                        <option value="九上">九上</option>
+                        <option value="九下">九下</option>
+                    </select>
+                </label>
+                <label class="field">
                     <span>试卷照片</span>
                     <input
                         type="file"
@@ -412,7 +432,23 @@
 
             <section aria-labelledby="paper-repo-list-title" class="paper-repo__list-wrapper">
                 <div class="paper-repo__list-header">
-                    <h3 id="paper-repo-list-title">已保存的试卷</h3>
+                    <div class="paper-repo__list-title">
+                        <h3 id="paper-repo-list-title">已保存的试卷</h3>
+                        <div class="paper-repo__filters" role="group" aria-label="筛选试卷">
+                            <label class="field">
+                                <span>学科</span>
+                                <select id="paper-repo-subject-filter">
+                                    <option value="">全部</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>学期</span>
+                                <select id="paper-repo-semester-filter">
+                                    <option value="">全部</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
                     <button type="button" id="paper-repo-refresh" class="btn btn-secondary btn-compact">刷新</button>
                 </div>
                 <p id="paper-repo-list-status" class="paper-repo__list-status" role="status" aria-live="polite"></p>
