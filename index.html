@@ -28,6 +28,13 @@
             >拍照检查</a>
             <a
                 href="#"
+                id="open-multi-ai-panel"
+                class="panel-link"
+                aria-controls="multi-ai-panel"
+                aria-expanded="false"
+            >多AI答题</a>
+            <a
+                href="#"
                 id="open-paper-repo-panel"
                 class="panel-link"
                 aria-controls="paper-repo-panel"
@@ -368,6 +375,50 @@
                 <div class="photo-check-results__content">
                     <div id="photo-check-report" class="photo-check-report"></div>
                 </div>
+            </section>
+        </section>
+
+        <section class="panel" id="multi-ai-panel" aria-labelledby="multi-ai-title" hidden>
+            <div class="panel-header">
+                <div class="panel-header__top">
+                    <h2 id="multi-ai-title">多AI答题</h2>
+                    <a href="#" id="close-multi-ai-panel" class="panel-link">返回错题列表</a>
+                </div>
+                <p>让多个 AI 分轮次解题、互查并汇总，适合需要多角度确认的复杂题目。</p>
+            </div>
+
+            <form id="multi-ai-form" class="form-grid">
+                <label class="field field--span-2">
+                    <span>题目文本</span>
+                    <textarea
+                        id="multi-ai-question"
+                        name="question"
+                        rows="4"
+                        placeholder="输入题目描述，或搭配题目图片使用。"
+                    ></textarea>
+                </label>
+                <label class="field">
+                    <span>题目图片（可选）</span>
+                    <input type="file" id="multi-ai-image" name="questionImage" accept="image/*" />
+                    <small>可上传题面照片，AI 将同时参考文本和图片说明。</small>
+                </label>
+                <div class="field">
+                    <span>当前 AI 阵容</span>
+                    <p class="hint">默认启用 qwen、kimi、chatgpt，可在后续版本中调整。</p>
+                </div>
+                <button type="submit" id="multi-ai-submit" class="btn btn-primary field--span-2">开始多AI答题</button>
+            </form>
+
+            <p id="multi-ai-status" class="multi-ai-status" role="status" aria-live="polite"></p>
+
+            <section aria-labelledby="multi-ai-progress-title" class="multi-ai-section">
+                <h3 id="multi-ai-progress-title">进度</h3>
+                <ul id="multi-ai-progress" class="multi-ai-progress" aria-live="polite"></ul>
+            </section>
+
+            <section aria-labelledby="multi-ai-results-title" class="multi-ai-section">
+                <h3 id="multi-ai-results-title">结果</h3>
+                <div id="multi-ai-results"></div>
             </section>
         </section>
 

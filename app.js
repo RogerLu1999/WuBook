@@ -37,6 +37,12 @@ const state = {
             messageVariant: ''
         }
     },
+    multiAi: {
+        providers: [],
+        isProcessing: false,
+        lastResult: null,
+        progress: []
+    },
     paperRepo: {
         items: [],
         isLoading: false,
@@ -170,6 +176,16 @@ const photoCheckSaveList = document.getElementById('photo-check-save-list');
 const photoCheckSaveStatus = document.getElementById('photo-check-save-status');
 const photoCheckSaveCancel = document.getElementById('photo-check-save-cancel');
 const photoCheckSaveConfirm = document.getElementById('photo-check-save-confirm');
+const multiAiPanel = document.getElementById('multi-ai-panel');
+const openMultiAiPanelLink = document.getElementById('open-multi-ai-panel');
+const closeMultiAiPanelLink = document.getElementById('close-multi-ai-panel');
+const multiAiForm = document.getElementById('multi-ai-form');
+const multiAiQuestionInput = document.getElementById('multi-ai-question');
+const multiAiImageInput = document.getElementById('multi-ai-image');
+const multiAiStatus = document.getElementById('multi-ai-status');
+const multiAiProgressList = document.getElementById('multi-ai-progress');
+const multiAiResults = document.getElementById('multi-ai-results');
+const multiAiSubmitButton = document.getElementById('multi-ai-submit');
 const wizardPanel = document.getElementById('wizard-panel');
 const openWizardPanelLink = document.getElementById('open-wizard-panel');
 const closeWizardPanelLink = document.getElementById('close-wizard-panel');
@@ -517,6 +533,16 @@ closePhotoCheckPanelLink?.addEventListener('click', (event) => {
     hidePhotoCheckPanel();
 });
 
+openMultiAiPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    showMultiAiPanel();
+});
+
+closeMultiAiPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    hideMultiAiPanel();
+});
+
 openPaperRepoPanelLink?.addEventListener('click', (event) => {
     event.preventDefault();
     showPaperRepoPanel();
@@ -642,6 +668,11 @@ photoCheckImageInput?.addEventListener('change', () => {
     setPhotoCheckStatus('');
 });
 
+multiAiImageInput?.addEventListener('change', () => {
+    if (state.multiAi.isProcessing) return;
+    setMultiAiStatus('');
+});
+
 photoCheckForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const files = Array.from(photoCheckImageInput?.files || []).filter(Boolean);
@@ -694,6 +725,63 @@ photoCheckForm?.addEventListener('submit', async (event) => {
     } finally {
         hidePhotoCheckProgress();
         setPhotoCheckButtonState(false);
+    }
+});
+
+multiAiForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (state.multiAi.isProcessing) return;
+
+    const question = (multiAiQuestionInput?.value || '').toString().trim();
+    const imageFile = (multiAiImageInput?.files || [])[0];
+
+    if (!question && !imageFile) {
+        setMultiAiStatus('请填写题目或上传题目图片。', 'error');
+        return;
+    }
+
+    const formData = new FormData(multiAiForm);
+    formData.set('question', question);
+    if (imageFile) {
+        formData.set('questionImage', imageFile);
+    }
+
+    state.multiAi.isProcessing = true;
+    state.multiAi.progress = [
+        { stage: 'initial', message: '正在进行第一步：三个 AI 初步答题…' }
+    ];
+    setMultiAiStatus('正在进行多 AI 答题，请稍候…');
+    renderMultiAiProgress();
+    renderMultiAiResults(null);
+    multiAiSubmitButton?.classList.add('is-busy');
+    multiAiSubmitButton?.setAttribute('aria-busy', 'true');
+    multiAiSubmitButton?.setAttribute('disabled', 'true');
+
+    try {
+        const response = await fetch('/api/multi-ai/solve', {
+            method: 'POST',
+            body: formData
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const message = payload?.error || '无法完成多 AI 答题，请稍后重试。';
+            throw new Error(message);
+        }
+
+        state.multiAi.lastResult = payload;
+        state.multiAi.progress = Array.isArray(payload?.steps) ? payload.steps : [];
+        renderMultiAiProgress();
+        renderMultiAiResults(payload);
+        setMultiAiStatus('多 AI 答题完成。', 'success');
+    } catch (error) {
+        console.error('Failed to run multi AI workflow', error);
+        setMultiAiStatus(error?.message || '无法完成多 AI 答题。', 'error');
+    } finally {
+        state.multiAi.isProcessing = false;
+        multiAiSubmitButton?.classList.remove('is-busy');
+        multiAiSubmitButton?.removeAttribute('aria-busy');
+        multiAiSubmitButton?.removeAttribute('disabled');
     }
 });
 
@@ -2397,6 +2485,7 @@ function restoreEntriesListPanelVisibility() {
         photoCheckPanel,
         formulaPanel,
         logPanel,
+        multiAiPanel,
         paperRepoPanel
     ].some((panel) => panel && !panel.hidden);
     if (!hasActiveSecondaryPanel) {
@@ -2433,6 +2522,45 @@ function hidePhotoCheckPanel(options = {}) {
     }
     if (reset) {
         resetPhotoCheckPanel();
+    }
+    if (scroll !== false) {
+        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (restoreEntries) {
+        restoreEntriesListPanelVisibility();
+    }
+}
+
+function showMultiAiPanel() {
+    if (!multiAiPanel) return;
+    hideEntriesListPanel();
+    hideEntryPanel({ scroll: false, restoreEntries: false });
+    hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePaperRepoPanel({ scroll: false, restoreEntries: false });
+    hideLogPanel({ scroll: false, restoreEntries: false });
+    const wasHidden = Boolean(multiAiPanel.hidden);
+    if (wasHidden) {
+        multiAiPanel.hidden = false;
+        refreshMultiAiProviders();
+    }
+    openMultiAiPanelLink?.setAttribute('aria-expanded', 'true');
+    multiAiPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (wasHidden) {
+        multiAiQuestionInput?.focus();
+    }
+}
+
+function hideMultiAiPanel(options = {}) {
+    if (!multiAiPanel) return;
+    const { scroll = true, reset = true, restoreEntries = true } = options;
+    openMultiAiPanelLink?.setAttribute('aria-expanded', 'false');
+    if (!multiAiPanel.hidden) {
+        multiAiPanel.hidden = true;
+    }
+    if (reset) {
+        resetMultiAiPanel();
     }
     if (scroll !== false) {
         document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2799,6 +2927,153 @@ function hidePhotoCheckProgress() {
     photoCheckProgress.classList.remove('is-active');
     photoCheckProgress.hidden = true;
     updatePhotoCheckProgress('');
+}
+
+function setMultiAiStatus(message, variant) {
+    if (!multiAiStatus) return;
+    multiAiStatus.textContent = message || '';
+    multiAiStatus.classList.remove('is-error', 'is-success');
+    if (!variant) return;
+    if (variant === 'error') {
+        multiAiStatus.classList.add('is-error');
+    } else if (variant === 'success') {
+        multiAiStatus.classList.add('is-success');
+    }
+}
+
+async function refreshMultiAiProviders() {
+    if (!multiAiPanel || state.multiAi.providers.length > 0) {
+        return;
+    }
+    try {
+        const response = await fetch('/api/multi-ai/providers');
+        const payload = await response.json().catch(() => ({}));
+        if (response.ok && Array.isArray(payload?.providers)) {
+            state.multiAi.providers = payload.providers;
+        }
+    } catch (error) {
+        console.warn('Failed to load multi AI providers', error);
+    }
+}
+
+function renderMultiAiProgress() {
+    if (!multiAiProgressList) return;
+    const steps = Array.isArray(state.multiAi.progress) ? state.multiAi.progress : [];
+    multiAiProgressList.innerHTML = '';
+
+    if (steps.length === 0) {
+        const li = document.createElement('li');
+        li.textContent = '尚未开始多 AI 答题。';
+        multiAiProgressList.appendChild(li);
+        return;
+    }
+
+    for (const step of steps) {
+        const li = document.createElement('li');
+        li.classList.add('multi-ai-progress__item');
+        if (step.status === 'error') {
+            li.classList.add('is-error');
+        } else if (step.status === 'success') {
+            li.classList.add('is-success');
+        }
+
+        const title = document.createElement('div');
+        title.classList.add('multi-ai-progress__title');
+        title.textContent = step.message || step.stage || '进行中';
+        li.appendChild(title);
+
+        if (step.detail) {
+            const detail = document.createElement('div');
+            detail.classList.add('multi-ai-progress__detail');
+            detail.textContent = step.detail;
+            li.appendChild(detail);
+        }
+
+        multiAiProgressList.appendChild(li);
+    }
+}
+
+function renderMultiAiResults(result) {
+    if (!multiAiResults) return;
+    multiAiResults.innerHTML = '';
+
+    const effective = result || state.multiAi.lastResult;
+    if (!effective) {
+        const empty = document.createElement('p');
+        empty.textContent = '尚未进行多 AI 答题。';
+        multiAiResults.appendChild(empty);
+        return;
+    }
+
+    const { initialAnswers = [], reviewAnswers = [], summary = '' } = effective;
+
+    multiAiResults.appendChild(createMultiAiRoundSection('第一步：AI 初步答题', initialAnswers));
+    multiAiResults.appendChild(createMultiAiRoundSection('第二步：交叉复核', reviewAnswers));
+
+    const summarySection = document.createElement('section');
+    summarySection.classList.add('multi-ai-section');
+    const summaryTitle = document.createElement('h3');
+    summaryTitle.textContent = '第三步：AI1 总结发言';
+    summarySection.appendChild(summaryTitle);
+    const summaryBody = document.createElement('p');
+    summaryBody.textContent = summary || '暂无总结。';
+    summarySection.appendChild(summaryBody);
+    multiAiResults.appendChild(summarySection);
+}
+
+function createMultiAiRoundSection(titleText, answers) {
+    const section = document.createElement('section');
+    section.classList.add('multi-ai-section');
+    const title = document.createElement('h3');
+    title.textContent = titleText;
+    section.appendChild(title);
+
+    if (!Array.isArray(answers) || answers.length === 0) {
+        const empty = document.createElement('p');
+        empty.textContent = '暂无内容。';
+        section.appendChild(empty);
+        return section;
+    }
+
+    const list = document.createElement('ul');
+    list.classList.add('multi-ai-results');
+
+    answers.forEach((item) => {
+        const li = document.createElement('li');
+        li.classList.add('multi-ai-results__item');
+        const header = document.createElement('div');
+        header.classList.add('multi-ai-results__title');
+        header.textContent = `${item.name || item.provider || 'AI'}：${item.status || '完成'}`;
+        li.appendChild(header);
+
+        const body = document.createElement('div');
+        body.classList.add('multi-ai-results__body');
+        body.textContent = item.output || item.answer || '暂无输出。';
+        li.appendChild(body);
+
+        if (item.analysis) {
+            const analysis = document.createElement('div');
+            analysis.classList.add('multi-ai-results__analysis');
+            analysis.textContent = item.analysis;
+            li.appendChild(analysis);
+        }
+        list.appendChild(li);
+    });
+
+    section.appendChild(list);
+    return section;
+}
+
+function resetMultiAiPanel() {
+    if (multiAiForm) {
+        multiAiForm.reset();
+    }
+    state.multiAi.isProcessing = false;
+    state.multiAi.lastResult = null;
+    state.multiAi.progress = [];
+    setMultiAiStatus('');
+    renderMultiAiProgress();
+    renderMultiAiResults(null);
 }
 
 function renderPhotoCheckResults(result) {
