@@ -469,6 +469,7 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
     const title = (req.body?.title || '').toString().trim();
     const subject = (req.body?.subject || '').toString().trim();
     const semester = (req.body?.semester || '').toString().trim();
+    const remark = (req.body?.remark || '').toString().trim();
     const files = Array.isArray(req.files) ? req.files : [];
 
     if (!title) {
@@ -496,14 +497,17 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
             });
         }
 
+        const sortedImages = sortPaperImages(images);
+
         const papers = await readPaperRepo();
         const paper = {
             id: `paper-${Date.now()}-${randomUUID()}`,
             title,
             subject,
             semester,
+            remark,
             createdAt,
-            images
+            images: sortedImages
         };
 
         papers.unshift(paper);
@@ -513,7 +517,8 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
             title,
             subject,
             semester,
-            images: images.length
+            remark: Boolean(remark),
+            images: sortedImages.length
         });
         res.status(201).json(paper);
     } catch (error) {
@@ -3557,19 +3562,26 @@ function normalizePaperImage(raw) {
     };
 }
 
+function sortPaperImages(images) {
+    return images
+        .slice()
+        .sort((a, b) => a.originalName.localeCompare(b.originalName, 'zh-Hans', { numeric: true, sensitivity: 'base' }));
+}
+
 function normalizePaperRecord(raw) {
     if (!raw || typeof raw !== 'object') {
         return null;
     }
 
     const images = Array.isArray(raw.images)
-        ? raw.images.map(normalizePaperImage).filter(Boolean)
+        ? sortPaperImages(raw.images.map(normalizePaperImage).filter(Boolean))
         : [];
 
     const createdAt = raw.createdAt || new Date().toISOString();
     const title = typeof raw.title === 'string' ? raw.title.trim() : '';
     const subject = typeof raw.subject === 'string' ? raw.subject.trim() : '';
     const semester = typeof raw.semester === 'string' ? raw.semester.trim() : '';
+    const remark = typeof raw.remark === 'string' ? raw.remark.trim() : '';
 
     if (!title && !images.length) {
         return null;
@@ -3580,6 +3592,7 @@ function normalizePaperRecord(raw) {
         title,
         subject,
         semester,
+        remark,
         createdAt,
         images
     };
