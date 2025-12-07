@@ -1913,6 +1913,137 @@ select:focus {
     width: min(600px, 90vw);
 }
 
+.paper-repo__form {
+    display: grid;
+    gap: 1rem;
+}
+
+.paper-repo__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.paper-repo__status,
+.paper-repo__list-status {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    min-height: 1.25rem;
+}
+
+.paper-repo__status.is-error,
+.paper-repo__list-status.is-error {
+    color: var(--danger);
+}
+
+.paper-repo__status.is-success,
+.paper-repo__list-status.is-success {
+    color: var(--success);
+}
+
+.paper-repo__list-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.paper-repo__list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.paper-repo__list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+}
+
+.paper-card {
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1rem;
+    background: #fff;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+}
+
+.paper-card summary {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.paper-card summary::-webkit-details-marker {
+    display: none;
+}
+
+.paper-card__summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    align-items: flex-start;
+    cursor: pointer;
+}
+
+.paper-card__summary::after {
+    content: '⌄';
+    color: var(--text-muted);
+    transform: rotate(0deg);
+    transition: transform 0.2s ease;
+}
+
+.paper-card[open] .paper-card__summary::after {
+    transform: rotate(180deg);
+}
+
+.paper-card__title {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.paper-card__meta {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.paper-card__images {
+    margin-top: 0.75rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 0.75rem;
+}
+
+.paper-card__figure {
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #f8fafc;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.paper-card__figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.paper-card__caption {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.85), #fff);
+}
+
 @media (max-width: 700px) {
     .form-grid {
         grid-template-columns: 1fr;

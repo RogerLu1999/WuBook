@@ -28,6 +28,13 @@
             >拍照检查</a>
             <a
                 href="#"
+                id="open-paper-repo-panel"
+                class="panel-link"
+                aria-controls="paper-repo-panel"
+                aria-expanded="false"
+            >试卷仓库</a>
+            <a
+                href="#"
                 id="open-formula-panel"
                 class="panel-link"
                 aria-controls="formula-panel"
@@ -361,6 +368,55 @@
                 <div class="photo-check-results__content">
                     <div id="photo-check-report" class="photo-check-report"></div>
                 </div>
+            </section>
+        </section>
+
+        <section class="panel" id="paper-repo-panel" aria-labelledby="paper-repo-title" hidden>
+            <div class="panel-header">
+                <div class="panel-header__top">
+                    <h2 id="paper-repo-title">试卷仓库</h2>
+                    <a href="#" id="close-paper-repo-panel" class="panel-link">返回错题列表</a>
+                </div>
+                <p>集中管理历次考试或练习试卷照片，随时回顾和对照。</p>
+            </div>
+
+            <form id="paper-repo-form" class="paper-repo__form">
+                <label class="field">
+                    <span>试卷名称</span>
+                    <input
+                        type="text"
+                        id="paper-repo-title-input"
+                        name="title"
+                        placeholder="例如：2025 年期中数学"
+                        required
+                    />
+                    <small>给此次上传取一个好记的名字，方便快速定位。</small>
+                </label>
+                <label class="field">
+                    <span>试卷照片</span>
+                    <input
+                        type="file"
+                        id="paper-repo-images"
+                        name="images"
+                        accept="image/*"
+                        multiple
+                        required
+                    />
+                    <small>支持一次选择多张，按照页码或题号顺序上传更便于查看。</small>
+                </label>
+                <div class="paper-repo__actions">
+                    <button type="submit" class="btn btn-primary">保存到试卷仓库</button>
+                    <p id="paper-repo-status" class="paper-repo__status" role="status" aria-live="polite"></p>
+                </div>
+            </form>
+
+            <section aria-labelledby="paper-repo-list-title" class="paper-repo__list-wrapper">
+                <div class="paper-repo__list-header">
+                    <h3 id="paper-repo-list-title">已保存的试卷</h3>
+                    <button type="button" id="paper-repo-refresh" class="btn btn-secondary btn-compact">刷新</button>
+                </div>
+                <p id="paper-repo-list-status" class="paper-repo__list-status" role="status" aria-live="polite"></p>
+                <div id="paper-repo-list" class="paper-repo__list"></div>
             </section>
         </section>
 
