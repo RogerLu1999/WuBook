@@ -200,6 +200,21 @@ function getUploadedFileName(file) {
     return decodeUploadFilename(file.originalname).trim();
 }
 
+function normalizeDateOnly(input, fallbackIso) {
+    const fallback = fallbackIso || new Date().toISOString();
+    if (!input) {
+        return fallback;
+    }
+
+    const date = new Date(input);
+    if (Number.isNaN(date.getTime())) {
+        return fallback;
+    }
+
+    const normalized = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    return normalized.toISOString();
+}
+
 const preferIPv4Lookup =
     typeof dns.lookup === 'function'
         ? (hostname, options, callback) => {
@@ -470,6 +485,8 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
     const subject = (req.body?.subject || '').toString().trim();
     const semester = (req.body?.semester || '').toString().trim();
     const remark = (req.body?.remark || '').toString().trim();
+    const savedDateInput = (req.body?.savedDate || '').toString().trim();
+    const paperDateInput = (req.body?.paperDate || '').toString().trim();
     const files = Array.isArray(req.files) ? req.files : [];
 
     if (!title) {
@@ -481,7 +498,9 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
     }
 
     try {
-        const createdAt = new Date().toISOString();
+        const savedAt = normalizeDateOnly(savedDateInput);
+        const paperDate = normalizeDateOnly(paperDateInput, savedAt);
+        const createdAt = savedAt;
         const images = [];
 
         for (const file of files) {
@@ -506,6 +525,8 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
             subject,
             semester,
             remark,
+            savedAt,
+            paperDate,
             createdAt,
             images: sortedImages
         };
@@ -518,6 +539,8 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
             subject,
             semester,
             remark: Boolean(remark),
+            savedAt,
+            paperDate,
             images: sortedImages.length
         });
         res.status(201).json(paper);
@@ -3577,7 +3600,9 @@ function normalizePaperRecord(raw) {
         ? sortPaperImages(raw.images.map(normalizePaperImage).filter(Boolean))
         : [];
 
-    const createdAt = raw.createdAt || new Date().toISOString();
+    const savedAt = normalizeDateOnly(raw.savedAt || raw.createdAt || new Date().toISOString());
+    const paperDate = normalizeDateOnly(raw.paperDate || savedAt, savedAt);
+    const createdAt = savedAt;
     const title = typeof raw.title === 'string' ? raw.title.trim() : '';
     const subject = typeof raw.subject === 'string' ? raw.subject.trim() : '';
     const semester = typeof raw.semester === 'string' ? raw.semester.trim() : '';
@@ -3593,6 +3618,8 @@ function normalizePaperRecord(raw) {
         subject,
         semester,
         remark,
+        savedAt,
+        paperDate,
         createdAt,
         images
     };

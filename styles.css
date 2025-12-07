@@ -1918,6 +1918,13 @@ select:focus {
     gap: 1rem;
 }
 
+.paper-repo__row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    align-items: end;
+}
+
 .paper-repo__actions {
     display: flex;
     align-items: center;
@@ -1977,7 +1984,7 @@ select:focus {
 
 .paper-repo__list {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: 1fr;
     gap: 1rem;
 }
 

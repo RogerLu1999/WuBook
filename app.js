@@ -218,6 +218,8 @@ const paperRepoTitleInput = document.getElementById('paper-repo-title-input');
 const paperRepoSubjectInput = document.getElementById('paper-repo-subject');
 const paperRepoSemesterSelect = document.getElementById('paper-repo-semester');
 const paperRepoRemarkInput = document.getElementById('paper-repo-remark');
+const paperRepoSavedDateInput = document.getElementById('paper-repo-saved-date');
+const paperRepoPaperDateInput = document.getElementById('paper-repo-paper-date');
 const paperRepoImagesInput = document.getElementById('paper-repo-images');
 const paperRepoStatus = document.getElementById('paper-repo-status');
 const paperRepoListStatus = document.getElementById('paper-repo-list-status');
@@ -421,6 +423,7 @@ let wizardRecognizedText = '';
 
 setCreatedAtDefaultValue();
 setDefaultSubjectAndSemester();
+setPaperRepoDefaults();
 updateEntryFormSuggestions();
 initRichTextEditors();
 hideEntryPanel({ scroll: false });
@@ -605,6 +608,7 @@ paperRepoTitleInput?.addEventListener('input', () => {
 
 paperRepoSubjectInput?.addEventListener('input', () => {
     setPaperRepoStatus('');
+    rememberLastSubject(paperRepoSubjectInput.value);
 });
 
 paperRepoSemesterSelect?.addEventListener('change', () => {
@@ -2450,6 +2454,7 @@ function showPaperRepoPanel() {
     if (wasHidden) {
         paperRepoPanel.hidden = false;
         loadPaperRepo({ lazy: true });
+        setPaperRepoDefaults({ force: true });
     }
     openPaperRepoPanelLink?.setAttribute('aria-expanded', 'true');
     paperRepoPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -5866,6 +5871,33 @@ function getDefaultSemesterValue() {
     return '八上';
 }
 
+function setPaperRepoDefaultDates(options = {}) {
+    const { force = false } = options;
+    const today = toDateInputValue(new Date().toISOString());
+
+    if (paperRepoSavedDateInput && (force || !paperRepoSavedDateInput.value)) {
+        paperRepoSavedDateInput.value = today;
+    }
+
+    if (paperRepoPaperDateInput && (force || !paperRepoPaperDateInput.value)) {
+        paperRepoPaperDateInput.value = today;
+    }
+}
+
+function applyPaperRepoLastSubject(subjectOverride) {
+    if (!paperRepoSubjectInput) return;
+    const normalized = (subjectOverride ?? '').toString().trim();
+    const lastSubject = normalized || getLastSubject();
+    if (lastSubject) {
+        paperRepoSubjectInput.value = lastSubject;
+    }
+}
+
+function setPaperRepoDefaults(options = {}) {
+    setPaperRepoDefaultDates(options);
+    applyPaperRepoLastSubject();
+}
+
 function formatDateDisplay(iso) {
     if (!iso) return '';
     const date = new Date(iso);
@@ -6116,11 +6148,15 @@ function normalizePaperRecord(raw) {
     const subject = typeof raw.subject === 'string' ? raw.subject.trim() : '';
     const semester = typeof raw.semester === 'string' ? raw.semester.trim() : '';
     const remark = typeof raw.remark === 'string' ? raw.remark.trim() : '';
+    const savedAt = raw.savedAt || raw.createdAt || '';
+    const paperDate = raw.paperDate || savedAt || '';
 
     return {
         id: raw.id || '',
         title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : '未命名试卷',
-        createdAt: raw.createdAt || '',
+        createdAt: savedAt,
+        savedAt,
+        paperDate,
         subject,
         semester,
         remark,
@@ -6271,10 +6307,17 @@ function buildPaperCard(paper, defaultOpen = false) {
         meta.appendChild(semester);
     }
 
-    const created = formatDateTimeWithMinutes(paper.createdAt);
-    if (created) {
+    const savedDate = formatDateDisplay(paper.savedAt || paper.createdAt);
+    if (savedDate) {
         const date = document.createElement('span');
-        date.textContent = created;
+        date.textContent = `保存：${savedDate}`;
+        meta.appendChild(date);
+    }
+
+    const paperDate = formatDateDisplay(paper.paperDate);
+    if (paperDate) {
+        const date = document.createElement('span');
+        date.textContent = `试卷：${paperDate}`;
         meta.appendChild(date);
     }
 
@@ -6371,7 +6414,20 @@ async function submitPaperRepoForm() {
     const subject = (paperRepoSubjectInput?.value || '').toString().trim();
     const semester = (paperRepoSemesterSelect?.value || '').toString().trim();
     const remark = (paperRepoRemarkInput?.value || '').toString().trim();
+    const savedDate = (paperRepoSavedDateInput?.value || '').toString().trim();
+    const paperDate = (paperRepoPaperDateInput?.value || '').toString().trim();
     const files = Array.from(paperRepoImagesInput?.files || []).filter((file) => file && file.size > 0);
+    const today = toDateInputValue(new Date().toISOString());
+    const normalizedSavedDate = savedDate || today;
+    const normalizedPaperDate = paperDate || today;
+
+    if (!savedDate && paperRepoSavedDateInput) {
+        paperRepoSavedDateInput.value = normalizedSavedDate;
+    }
+
+    if (!paperDate && paperRepoPaperDateInput) {
+        paperRepoPaperDateInput.value = normalizedPaperDate;
+    }
 
     if (!title) {
         setPaperRepoStatus('请填写试卷名称，例如“2025 年期中数学”。', 'error');
@@ -6397,6 +6453,8 @@ async function submitPaperRepoForm() {
     formData.append('subject', subject);
     formData.append('semester', semester);
     formData.append('remark', remark);
+    formData.append('savedDate', normalizedSavedDate);
+    formData.append('paperDate', normalizedPaperDate);
     files.forEach((file) => {
         formData.append('images', file);
     });
@@ -6420,6 +6478,9 @@ async function submitPaperRepoForm() {
         }
 
         paperRepoForm.reset();
+        rememberLastSubject(subject);
+        applyPaperRepoLastSubject(subject);
+        setPaperRepoDefaultDates({ force: true });
         setPaperRepoStatus('已保存到试卷仓库。', 'success');
     } catch (error) {
         console.error(error);

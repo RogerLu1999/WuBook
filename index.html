@@ -392,36 +392,48 @@
                     />
                     <small>给此次上传取一个好记的名字，方便快速定位。</small>
                 </label>
-                <label class="field">
-                    <span>学科</span>
-                    <input
-                        type="text"
-                        id="paper-repo-subject"
-                        name="subject"
-                        list="subject-options"
-                        placeholder="数学、英语…"
-                    />
-                </label>
-                <label class="field">
-                    <span>学期</span>
-                    <select id="paper-repo-semester" name="semester">
-                        <option value="">请选择</option>
-                        <option value="八上" selected>八上</option>
-                        <option value="八下">八下</option>
-                        <option value="九上">九上</option>
-                        <option value="九下">九下</option>
-                    </select>
-                </label>
-                <label class="field">
-                    <span>备注</span>
-                    <input
-                        type="text"
-                        id="paper-repo-remark"
-                        name="remark"
-                        maxlength="120"
-                        placeholder="可选：添加页码、版本或其他补充信息"
-                    />
-                </label>
+                <div class="paper-repo__row">
+                    <label class="field">
+                        <span>学科</span>
+                        <input
+                            type="text"
+                            id="paper-repo-subject"
+                            name="subject"
+                            list="subject-options"
+                            placeholder="数学、英语…"
+                        />
+                    </label>
+                    <label class="field">
+                        <span>学期</span>
+                        <select id="paper-repo-semester" name="semester">
+                            <option value="">请选择</option>
+                            <option value="八上" selected>八上</option>
+                            <option value="八下">八下</option>
+                            <option value="九上">九上</option>
+                            <option value="九下">九下</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>备注</span>
+                        <input
+                            type="text"
+                            id="paper-repo-remark"
+                            name="remark"
+                            maxlength="120"
+                            placeholder="可选：添加页码、版本或其他补充信息"
+                        />
+                    </label>
+                </div>
+                <div class="paper-repo__row">
+                    <label class="field">
+                        <span>保存日期</span>
+                        <input type="date" id="paper-repo-saved-date" name="savedDate" />
+                    </label>
+                    <label class="field">
+                        <span>试卷日期</span>
+                        <input type="date" id="paper-repo-paper-date" name="paperDate" />
+                    </label>
+                </div>
                 <label class="field">
                     <span>试卷照片</span>
                     <input
