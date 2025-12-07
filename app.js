@@ -217,6 +217,7 @@ const paperRepoForm = document.getElementById('paper-repo-form');
 const paperRepoTitleInput = document.getElementById('paper-repo-title-input');
 const paperRepoSubjectInput = document.getElementById('paper-repo-subject');
 const paperRepoSemesterSelect = document.getElementById('paper-repo-semester');
+const paperRepoRemarkInput = document.getElementById('paper-repo-remark');
 const paperRepoImagesInput = document.getElementById('paper-repo-images');
 const paperRepoStatus = document.getElementById('paper-repo-status');
 const paperRepoListStatus = document.getElementById('paper-repo-list-status');
@@ -6098,14 +6099,23 @@ function normalizePaperImage(raw) {
     };
 }
 
+function sortPaperImages(images) {
+    return images
+        .slice()
+        .sort((a, b) => a.originalName.localeCompare(b.originalName, 'zh-Hans', { numeric: true, sensitivity: 'base' }));
+}
+
 function normalizePaperRecord(raw) {
     if (!raw || typeof raw !== 'object') {
         return null;
     }
 
-    const images = Array.isArray(raw.images) ? raw.images.map(normalizePaperImage).filter(Boolean) : [];
+    const images = Array.isArray(raw.images)
+        ? sortPaperImages(raw.images.map(normalizePaperImage).filter(Boolean))
+        : [];
     const subject = typeof raw.subject === 'string' ? raw.subject.trim() : '';
     const semester = typeof raw.semester === 'string' ? raw.semester.trim() : '';
+    const remark = typeof raw.remark === 'string' ? raw.remark.trim() : '';
 
     return {
         id: raw.id || '',
@@ -6113,6 +6123,7 @@ function normalizePaperRecord(raw) {
         createdAt: raw.createdAt || '',
         subject,
         semester,
+        remark,
         images
     };
 }
@@ -6268,6 +6279,13 @@ function buildPaperCard(paper, defaultOpen = false) {
     }
 
     summary.appendChild(meta);
+
+    if (paper.remark) {
+        const remark = document.createElement('p');
+        remark.className = 'paper-card__remark';
+        remark.textContent = paper.remark;
+        summary.appendChild(remark);
+    }
     details.appendChild(summary);
 
     const imagesContainer = document.createElement('div');
@@ -6352,6 +6370,7 @@ async function submitPaperRepoForm() {
     const title = (paperRepoTitleInput?.value || '').toString().trim();
     const subject = (paperRepoSubjectInput?.value || '').toString().trim();
     const semester = (paperRepoSemesterSelect?.value || '').toString().trim();
+    const remark = (paperRepoRemarkInput?.value || '').toString().trim();
     const files = Array.from(paperRepoImagesInput?.files || []).filter((file) => file && file.size > 0);
 
     if (!title) {
@@ -6377,6 +6396,7 @@ async function submitPaperRepoForm() {
     formData.append('title', title);
     formData.append('subject', subject);
     formData.append('semester', semester);
+    formData.append('remark', remark);
     files.forEach((file) => {
         formData.append('images', file);
     });
