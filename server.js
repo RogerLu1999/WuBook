@@ -46,6 +46,11 @@ const PHOTO_CHECK_RECORDS_DIR = path.join(PHOTO_CHECK_DIR, 'records');
 const PHOTO_CHECK_HISTORY_FILE = path.join(PHOTO_CHECK_DIR, 'history.json');
 const PAPER_REPO_DIR = path.join(DATA_DIR, 'paper-repo');
 const PAPER_REPO_FILE = path.join(PAPER_REPO_DIR, 'papers.json');
+const MULTI_AI_PROVIDERS = [
+    { id: 'qwen', name: 'qwen', label: 'Qwen' },
+    { id: 'kimi', name: 'kimi', label: 'Kimi' },
+    { id: 'chatgpt', name: 'chatgpt', label: 'ChatGPT' }
+];
 const ALLOWED_RICH_TEXT_TAGS = new Set([
     'b',
     'strong',
@@ -416,6 +421,12 @@ const photoCheckUpload = ocrUpload.fields([
     { name: 'image', maxCount: 1 },
     { name: 'images', maxCount: 10 }
 ]);
+const multiAiUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 8 * 1024 * 1024
+    }
+});
 
 app.use(express.json({ limit: '10mb' }));
 app.use('/data', (req, res) => res.sendStatus(404));
@@ -872,6 +883,62 @@ app.get('/api/photo-check/records/:id', async (req, res) => {
             return res.status(500).json({ error: '拍照检查记录文件已损坏，无法读取。' });
         }
         res.status(500).json({ error: '无法读取拍照检查记录。' });
+    }
+});
+
+app.get('/api/multi-ai/providers', (req, res) => {
+    res.json({ providers: MULTI_AI_PROVIDERS });
+});
+
+app.post('/api/multi-ai/solve', multiAiUpload.single('questionImage'), async (req, res) => {
+    const question = (req.body?.question || '').toString().trim();
+    const imageFile = req.file;
+
+    if (!question && !imageFile) {
+        return res.status(400).json({ error: '请提供题目文本或上传图片。' });
+    }
+
+    let imageUrl = null;
+    let imageBase64 = '';
+
+    try {
+        if (imageFile?.buffer?.length) {
+            await ensureDirectories();
+            const ext = path.extname(getUploadedFileName(imageFile) || imageFile.originalname || '') || '.png';
+            const filename = `multi-ai-${Date.now()}-${randomUUID()}${ext}`;
+            const filePath = path.join(UPLOADS_DIR, filename);
+            await fsp.writeFile(filePath, imageFile.buffer);
+            imageUrl = `/uploads/${filename}`;
+            imageBase64 = imageFile.buffer.toString('base64');
+        }
+
+        const providers = getMultiAiProviders();
+        if (providers.length === 0) {
+            throw new Error('未配置可用的 AI 提供方。');
+        }
+
+        const workflowResult = await runMultiAiWorkflow({
+            question,
+            providers,
+            imageUrl,
+            imageBase64
+        });
+
+        await logAction('multi-ai', 'success', {
+            questionLength: question.length,
+            imageAttached: Boolean(imageUrl),
+            providers: providers.map((item) => item.id)
+        });
+
+        res.json({
+            ...workflowResult,
+            imageUrl,
+            providers: providers.map(({ id, label }) => ({ id, label }))
+        });
+    } catch (error) {
+        console.error('Failed to run multi AI workflow', error);
+        await logAction('multi-ai', 'error', { message: error.message });
+        res.status(500).json({ error: error.message || '无法完成多 AI 答题。' });
     }
 });
 
@@ -2382,6 +2449,247 @@ function extractTextFromOpenAIResponse(result) {
     }
 
     return '';
+}
+
+function getMultiAiProviders() {
+    return MULTI_AI_PROVIDERS.map((provider) => ({ ...provider }));
+}
+
+function buildMultiAiQuestionContext(question, imageUrl, imageBase64) {
+    const parts = [];
+    const normalizedQuestion = (question || '').toString().trim();
+    if (normalizedQuestion) {
+        parts.push(`题目：${normalizedQuestion}`);
+    }
+    if (imageUrl) {
+        parts.push(`题目图片：${imageUrl}`);
+    }
+    if (imageBase64) {
+        const snippet = imageBase64.slice(0, 240);
+        parts.push(`题目图片 Base64 片段（供参考）：${snippet}…`);
+    }
+
+    return parts.join('\n');
+}
+
+async function runMultiAiWorkflow({ question, providers, imageUrl, imageBase64 }) {
+    const steps = [];
+    const questionContext = buildMultiAiQuestionContext(question, imageUrl, imageBase64);
+    const baseSystemPrompt =
+        '你是一位严谨的学业辅助 AI，请使用简洁、可靠的中文输出你的思考。保持条理清晰，不要返回 JSON。';
+
+    steps.push({ stage: 'initial', message: '正在进行第一步：三个 AI 初步答题…' });
+    const initialAnswers = [];
+    for (const provider of providers) {
+        const userPrompt = `${questionContext}\n\n请独立审题并给出解题思路与答案。`;
+        const output = await callMultiAiProvider(provider, baseSystemPrompt, userPrompt, 'multi-ai-initial');
+        initialAnswers.push({ provider: provider.id, name: provider.label, output: output?.trim() || '' });
+    }
+    steps.push({ stage: 'initial', message: '第一步完成，三个 AI 已提交初步答案。', status: 'success' });
+
+    steps.push({ stage: 'review', message: '正在进行第二步：带入初步答案做交叉复核…' });
+    const reviewAnswers = [];
+    const firstRoundText = initialAnswers
+        .map((item, index) => `AI${index + 1}（${item.name}）的回答：\n${item.output || '未返回'}`)
+        .join('\n\n');
+    for (const provider of providers) {
+        const userPrompt = `${questionContext}\n\n以下是第一轮的所有回答：\n${firstRoundText}\n\n请结合题目和这些回答重新做出你的判断：\n- 指出其他 AI 的遗漏、偏差或合理之处；\n- 如有必要，可修正自己的答案；\n- 给出明确的结论。`;
+        const output = await callMultiAiProvider(provider, baseSystemPrompt, userPrompt, 'multi-ai-review');
+        reviewAnswers.push({ provider: provider.id, name: provider.label, output: output?.trim() || '' });
+    }
+    steps.push({ stage: 'review', message: '第二步完成，已完成互查复核。', status: 'success' });
+
+    const summaryProvider = providers[0];
+    steps.push({ stage: 'summary', message: '正在进行第三步：AI1 汇总观点…' });
+    const secondRoundText = reviewAnswers
+        .map((item, index) => `AI${index + 1}（${item.name}）的复核结果：\n${item.output || '未返回'}`)
+        .join('\n\n');
+    const summaryPrompt = `${questionContext}\n\n以下是第二轮互查后的结果：\n${secondRoundText}\n\n请作为 AI1 给用户做最终总结：\n- 用小结指出每个 AI 在第二轮的要点；\n- 说明是否出现共识或分歧；\n- 给出你的最终建议，并提示用户是否需要自行进一步检查。`;
+    const summary = await callMultiAiProvider(
+        summaryProvider,
+        baseSystemPrompt,
+        summaryPrompt,
+        'multi-ai-summary'
+    );
+    steps.push({ stage: 'summary', message: '第三步完成，已生成总结。', status: 'success' });
+
+    return {
+        steps,
+        initialAnswers,
+        reviewAnswers,
+        summary: (summary || '').trim()
+    };
+}
+
+async function callMultiAiProvider(provider, systemPrompt, userPrompt, action) {
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+    ];
+
+    switch (provider?.id) {
+        case 'qwen':
+            return chatWithQwen(messages, action);
+        case 'kimi':
+            return chatWithKimi(messages, action);
+        case 'chatgpt':
+            return chatWithOpenAi(messages, action);
+        default:
+            throw new Error(`未知的 AI 提供方：${provider?.id || '未知'}`);
+    }
+}
+
+async function chatWithQwen(messages, action) {
+    const apiKey = process.env.DASHSCOPE_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 Qwen API Key 配置。');
+    }
+
+    const endpoint = 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation';
+    const model = process.env.QWEN_QA_MODEL || 'qwen-turbo';
+    const payload = {
+        model,
+        input: {
+            messages: messages.map((message) => ({
+                role: message.role,
+                content: [{ text: message.content }]
+            }))
+        },
+        parameters: { result_format: 'text' }
+    };
+
+    let response;
+    try {
+        response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const body = await response.json().catch(() => ({}));
+        const responseSummary = { status: response.status, ok: response.ok, body };
+        const text = extractTextFromQwenResponse(body);
+        await logAiInteraction('qwen', { action, endpoint, model, request: { messages }, response: responseSummary });
+
+        if (!response.ok) {
+            throw new Error(body?.message || `Qwen API 请求失败（${response.status}）`);
+        }
+        if (!text) {
+            throw new Error('Qwen 未返回结果。');
+        }
+
+        return text;
+    } catch (error) {
+        await logAiInteraction('qwen', { action, endpoint, model, request: { messages }, error });
+        throw error;
+    }
+}
+
+async function chatWithKimi(messages, action) {
+    const apiKey = process.env.MOONSHOT_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 Kimi API Key 配置。');
+    }
+
+    const endpoint = 'https://api.moonshot.cn/v1/chat/completions';
+    const model = 'kimi-k2-turbo-preview';
+    const payload = { model, messages, temperature: 0 };
+
+    let response;
+    try {
+        response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const body = await response.json().catch(() => ({}));
+        const responseSummary = { status: response.status, ok: response.ok, body };
+        const text = extractTextFromKimiResponse(body);
+        await logAiInteraction('kimi', { action, endpoint, model, request: { messages }, response: responseSummary });
+
+        if (!response.ok) {
+            const message = body?.error?.message || `Kimi API 请求失败（${response.status}）`;
+            throw new Error(message);
+        }
+        if (!text) {
+            throw new Error('Kimi 未返回结果。');
+        }
+
+        return text;
+    } catch (error) {
+        await logAiInteraction('kimi', { action, endpoint, model, request: { messages }, error });
+        throw error;
+    }
+}
+
+async function chatWithOpenAi(messages, action) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw new Error('缺少 OpenAI API Key 配置。');
+    }
+
+    const baseUrl = String(process.env.OPENAI_API_BASE || 'https://api.openai.com/v1').replace(/\/$/, '');
+    const endpoint = `${baseUrl}/chat/completions`;
+    const model = process.env.OPENAI_QA_MODEL || 'gpt-5-mini';
+    const timeoutMs = toFiniteNumber(process.env.OPENAI_TIMEOUT_MS) || 36000;
+    const payload = {
+        model,
+        messages,
+        ...(process.env.OPENAI_TEMPERATURE && Number(process.env.OPENAI_TEMPERATURE) !== 0
+            ? { temperature: Number(process.env.OPENAI_TEMPERATURE) }
+            : {})
+    };
+
+    let requestResult;
+    try {
+        if (typeof fetch === 'function') {
+            requestResult = await postJsonWithFetch(endpoint, payload, {
+                headers: { Authorization: `Bearer ${apiKey}` },
+                timeoutMs,
+                debugLabel: 'openai:multi-ai'
+            });
+        } else {
+            requestResult = await postJsonWithHttps(endpoint, payload, {
+                headers: { Authorization: `Bearer ${apiKey}` },
+                timeoutMs,
+                preferIPv4: true,
+                debugLabel: 'openai:multi-ai'
+            });
+        }
+
+        const responseSummary = {
+            status: requestResult?.status,
+            ok: requestResult?.ok,
+            body: requestResult?.body
+        };
+
+        const text = extractTextFromOpenAIResponse(requestResult?.body);
+        await logAiInteraction('openai', { action, endpoint, model, request: { messages }, response: responseSummary });
+
+        if (!requestResult?.ok) {
+            const message =
+                requestResult?.body?.error?.message ||
+                requestResult?.body?.message ||
+                `OpenAI API 请求失败（${requestResult?.status}）`;
+            throw new Error(message);
+        }
+
+        if (!text) {
+            throw new Error('OpenAI 未返回结果。');
+        }
+
+        return text;
+    } catch (error) {
+        await logAiInteraction('openai', { action, endpoint, model, request: { messages }, error });
+        throw error;
+    }
 }
 
 function buildPhotoCheckTextReviewPrompt(problems) {
