@@ -6405,6 +6405,7 @@ function normalizePaperImage(raw) {
     const url = typeof raw.url === 'string' ? raw.url : null;
     const resizedUrl = typeof raw.resizedUrl === 'string' ? raw.resizedUrl : null;
     const src = resolveMediaUrl(resizedUrl || url);
+    const fullSrc = resolveMediaUrl(url || resizedUrl);
 
     if (!src) {
         return null;
@@ -6419,6 +6420,7 @@ function normalizePaperImage(raw) {
         url,
         resizedUrl,
         src,
+        fullSrc,
         createdAt: raw.createdAt || ''
     };
 }
@@ -6636,12 +6638,20 @@ function buildPaperCard(paper, defaultOpen = false) {
             const figure = document.createElement('figure');
             figure.className = 'paper-card__figure';
 
+            const link = document.createElement('a');
+            link.href = image.fullSrc || image.src;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'paper-card__image-link';
+            link.title = '点击查看大图（在新窗口打开）';
+
             const img = document.createElement('img');
             img.src = image.src;
             img.alt = image.originalName;
             img.loading = 'lazy';
             img.decoding = 'async';
-            figure.appendChild(img);
+            link.appendChild(img);
+            figure.appendChild(link);
 
             const caption = document.createElement('figcaption');
             caption.className = 'paper-card__caption';
