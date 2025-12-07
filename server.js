@@ -44,6 +44,8 @@ const AI_LOG_FILE = path.join(ROOT_DIR, 'ai-calls.log');
 const PHOTO_CHECK_DIR = path.join(DATA_DIR, 'photo-check');
 const PHOTO_CHECK_RECORDS_DIR = path.join(PHOTO_CHECK_DIR, 'records');
 const PHOTO_CHECK_HISTORY_FILE = path.join(PHOTO_CHECK_DIR, 'history.json');
+const PAPER_REPO_DIR = path.join(DATA_DIR, 'paper-repo');
+const PAPER_REPO_FILE = path.join(PAPER_REPO_DIR, 'papers.json');
 const ALLOWED_RICH_TEXT_TAGS = new Set([
     'b',
     'strong',
@@ -450,6 +452,66 @@ app.post(
         }
     }
 );
+
+app.get('/api/papers', async (req, res) => {
+    try {
+        const papers = await readPaperRepo();
+        await logAction('list-papers', 'success', { total: papers.length });
+        res.json(papers);
+    } catch (error) {
+        console.error('Failed to read paper repository', error);
+        await logAction('list-papers', 'error', { message: error.message });
+        res.status(500).json({ error: '无法读取试卷仓库。' });
+    }
+});
+
+app.post('/api/papers', upload.array('images', 30), async (req, res) => {
+    const title = (req.body?.title || '').toString().trim();
+    const files = Array.isArray(req.files) ? req.files : [];
+
+    if (!title) {
+        return res.status(400).json({ error: '请为试卷命名，例如“2025年期中数学”。' });
+    }
+
+    if (!files.length) {
+        return res.status(400).json({ error: '请至少上传一张试卷图片。' });
+    }
+
+    try {
+        const createdAt = new Date().toISOString();
+        const images = [];
+
+        for (const file of files) {
+            const filePath = path.join(UPLOADS_DIR, file.filename);
+            const photoInfo = await finalizePhotoStorage(filePath, file.filename);
+            images.push({
+                id: `paper-image-${Date.now()}-${randomUUID()}`,
+                originalName: getUploadedFileName(file) || '未命名图片',
+                url: photoInfo.photoUrl,
+                resizedUrl: photoInfo.photoResizedUrl,
+                scale: photoInfo.photoScale ?? null,
+                createdAt
+            });
+        }
+
+        const papers = await readPaperRepo();
+        const paper = {
+            id: `paper-${Date.now()}-${randomUUID()}`,
+            title,
+            createdAt,
+            images
+        };
+
+        papers.unshift(paper);
+        await writePaperRepo(papers);
+        await logAction('create-paper', 'success', { id: paper.id, title, images: images.length });
+        res.status(201).json(paper);
+    } catch (error) {
+        console.error('Failed to save paper record', error);
+        await logAction('create-paper', 'error', { message: error.message });
+        res.status(500).json({ error: '无法保存试卷记录，请稍后重试。' });
+    }
+});
 
 app.post('/api/ocr', ocrUpload.single('image'), async (req, res) => {
     if (!req.file) {
@@ -3458,6 +3520,93 @@ async function buildEntryFromImport(raw) {
     return entry;
 }
 
+function normalizePaperImage(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const url = typeof raw.url === 'string' ? raw.url : null;
+    const resizedUrl = typeof raw.resizedUrl === 'string' ? raw.resizedUrl : null;
+
+    if (!url && !resizedUrl) {
+        return null;
+    }
+
+    const createdAt = raw.createdAt || new Date().toISOString();
+
+    return {
+        id: raw.id || `paper-image-${Date.now()}-${randomUUID()}`,
+        originalName:
+            typeof raw.originalName === 'string' && raw.originalName.trim()
+                ? raw.originalName.trim()
+                : '未命名图片',
+        url,
+        resizedUrl,
+        scale: Number.isFinite(raw.scale) ? raw.scale : null,
+        createdAt
+    };
+}
+
+function normalizePaperRecord(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const images = Array.isArray(raw.images)
+        ? raw.images.map(normalizePaperImage).filter(Boolean)
+        : [];
+
+    const createdAt = raw.createdAt || new Date().toISOString();
+    const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+
+    if (!title && !images.length) {
+        return null;
+    }
+
+    return {
+        id: raw.id || `paper-${Date.now()}-${randomUUID()}`,
+        title,
+        createdAt,
+        images
+    };
+}
+
+function sortByCreatedAtDesc(items) {
+    const toTime = (value) => {
+        const time = Date.parse(value);
+        return Number.isFinite(time) ? time : 0;
+    };
+
+    return items.slice().sort((a, b) => toTime(b.createdAt) - toTime(a.createdAt));
+}
+
+async function readPaperRepo() {
+    await ensureDirectories();
+
+    try {
+        const raw = await fsp.readFile(PAPER_REPO_FILE, 'utf8');
+        if (!raw.trim()) {
+            return [];
+        }
+
+        const parsed = JSON.parse(raw);
+        const normalized = Array.isArray(parsed)
+            ? parsed.map(normalizePaperRecord).filter(Boolean)
+            : [];
+        return sortByCreatedAtDesc(normalized);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return [];
+        }
+        throw error;
+    }
+}
+
+async function writePaperRepo(papers) {
+    await ensureDirectories();
+    await fsp.writeFile(PAPER_REPO_FILE, JSON.stringify(papers, null, 2), 'utf8');
+}
+
 async function readEntries() {
     try {
         await ensureDirectories();
@@ -3496,6 +3645,7 @@ async function ensureDirectories() {
     await fsp.mkdir(UPLOADS_DIR, { recursive: true });
     await fsp.mkdir(PHOTO_CHECK_DIR, { recursive: true });
     await fsp.mkdir(PHOTO_CHECK_RECORDS_DIR, { recursive: true });
+    await fsp.mkdir(PAPER_REPO_DIR, { recursive: true });
 }
 
 async function removeMedia(...urls) {

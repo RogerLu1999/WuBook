@@ -37,6 +37,13 @@ const state = {
             messageVariant: ''
         }
     },
+    paperRepo: {
+        items: [],
+        isLoading: false,
+        error: '',
+        uploadStatus: '',
+        lastLoadedAt: null
+    },
     formulaRecognition: {
         result: {
             latex: '',
@@ -199,6 +206,16 @@ const formulaPlainOutput = document.getElementById('formula-result-plain');
 const formulaCopyLatexBtn = document.getElementById('formula-copy-latex');
 const formulaCopyMathmlBtn = document.getElementById('formula-copy-mathml');
 const formulaSubmitButtonDefaultLabel = formulaSubmitButton ? formulaSubmitButton.textContent.trim() : '';
+const paperRepoPanel = document.getElementById('paper-repo-panel');
+const openPaperRepoPanelLink = document.getElementById('open-paper-repo-panel');
+const closePaperRepoPanelLink = document.getElementById('close-paper-repo-panel');
+const paperRepoForm = document.getElementById('paper-repo-form');
+const paperRepoTitleInput = document.getElementById('paper-repo-title-input');
+const paperRepoImagesInput = document.getElementById('paper-repo-images');
+const paperRepoStatus = document.getElementById('paper-repo-status');
+const paperRepoListStatus = document.getElementById('paper-repo-list-status');
+const paperRepoList = document.getElementById('paper-repo-list');
+const paperRepoRefreshButton = document.getElementById('paper-repo-refresh');
 
 function sanitizeRichTextHtml(value) {
     if (!value) return '';
@@ -400,6 +417,7 @@ initRichTextEditors();
 hideEntryPanel({ scroll: false });
 hideWizardPanel({ scroll: false });
 hidePhotoCheckPanel({ scroll: false });
+hidePaperRepoPanel({ scroll: false });
 hideLogPanel({ scroll: false });
 
 init();
@@ -487,6 +505,16 @@ closePhotoCheckPanelLink?.addEventListener('click', (event) => {
     hidePhotoCheckPanel();
 });
 
+openPaperRepoPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    showPaperRepoPanel();
+});
+
+closePaperRepoPanelLink?.addEventListener('click', (event) => {
+    event.preventDefault();
+    hidePaperRepoPanel();
+});
+
 openFormulaPanelLink?.addEventListener('click', (event) => {
     event.preventDefault();
     showFormulaPanel();
@@ -556,6 +584,24 @@ formulaCopyLatexBtn?.addEventListener('click', () => {
 formulaCopyMathmlBtn?.addEventListener('click', () => {
     const text = formulaMathmlOutput?.value || '';
     copyFormulaTextToClipboard(text, 'MathML');
+});
+
+paperRepoImagesInput?.addEventListener('change', () => {
+    setPaperRepoStatus('');
+});
+
+paperRepoTitleInput?.addEventListener('input', () => {
+    setPaperRepoStatus('');
+});
+
+paperRepoForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    await submitPaperRepoForm();
+});
+
+paperRepoRefreshButton?.addEventListener('click', async (event) => {
+    event.preventDefault();
+    await loadPaperRepo({ force: true });
 });
 
 photoCheckImageInput?.addEventListener('change', () => {
@@ -2314,9 +2360,14 @@ function restoreEntriesListPanelVisibility() {
     if (!entriesListPanel) {
         return;
     }
-    const hasActiveSecondaryPanel = [entryPanel, wizardPanel, photoCheckPanel, formulaPanel, logPanel].some(
-        (panel) => panel && !panel.hidden
-    );
+    const hasActiveSecondaryPanel = [
+        entryPanel,
+        wizardPanel,
+        photoCheckPanel,
+        formulaPanel,
+        logPanel,
+        paperRepoPanel
+    ].some((panel) => panel && !panel.hidden);
     if (!hasActiveSecondaryPanel) {
         showEntriesListPanel();
     }
@@ -2328,6 +2379,7 @@ function showPhotoCheckPanel() {
     hideEntryPanel({ scroll: false, restoreEntries: false });
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
     hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePaperRepoPanel({ scroll: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
     const wasHidden = Boolean(photoCheckPanel.hidden);
     if (wasHidden) {
@@ -2359,12 +2411,52 @@ function hidePhotoCheckPanel(options = {}) {
     }
 }
 
+function showPaperRepoPanel() {
+    if (!paperRepoPanel) return;
+    hideEntriesListPanel();
+    hideEntryPanel({ scroll: false, restoreEntries: false });
+    hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
+    hideLogPanel({ scroll: false, restoreEntries: false });
+    const wasHidden = Boolean(paperRepoPanel.hidden);
+    if (wasHidden) {
+        paperRepoPanel.hidden = false;
+        loadPaperRepo({ lazy: true });
+    }
+    openPaperRepoPanelLink?.setAttribute('aria-expanded', 'true');
+    paperRepoPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (wasHidden) {
+        paperRepoTitleInput?.focus();
+    }
+}
+
+function hidePaperRepoPanel(options = {}) {
+    if (!paperRepoPanel) return;
+    const { scroll = true, restoreEntries = true } = options;
+    openPaperRepoPanelLink?.setAttribute('aria-expanded', 'false');
+    if (paperRepoPanel.hidden) {
+        if (restoreEntries) {
+            restoreEntriesListPanelVisibility();
+        }
+        return;
+    }
+    paperRepoPanel.hidden = true;
+    if (scroll !== false) {
+        document.getElementById('entries-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    if (restoreEntries) {
+        restoreEntriesListPanelVisibility();
+    }
+}
+
 function showFormulaPanel() {
     if (!formulaPanel) return;
     hideEntriesListPanel();
     hideEntryPanel({ scroll: false, restoreEntries: false });
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePaperRepoPanel({ scroll: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
     const wasHidden = Boolean(formulaPanel.hidden);
     if (wasHidden) {
@@ -5290,6 +5382,7 @@ function showEntryPanel() {
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
     hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePaperRepoPanel({ scroll: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
     const wasHidden = Boolean(entryPanel.hidden);
     if (wasHidden) {
@@ -5329,6 +5422,7 @@ function showWizardPanel() {
     hideEntryPanel({ scroll: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
     hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePaperRepoPanel({ scroll: false, restoreEntries: false });
     hideLogPanel({ scroll: false, restoreEntries: false });
     const wasHidden = Boolean(wizardPanel.hidden);
     if (wasHidden) {
@@ -5548,6 +5642,7 @@ function showLogPanel() {
     hideWizardPanel({ scroll: false, reset: false, restoreEntries: false });
     hidePhotoCheckPanel({ scroll: false, reset: false, restoreEntries: false });
     hideFormulaPanel({ scroll: false, reset: false, restoreEntries: false });
+    hidePaperRepoPanel({ scroll: false, restoreEntries: false });
     logPanel.hidden = false;
     openLogPanelLink?.setAttribute('aria-expanded', 'true');
     logPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -5927,6 +6022,269 @@ function formatEntryLine(details, options = {}) {
     }
     return parts.join(' • ');
 }
+
+function setPaperRepoStatus(message, variant) {
+    if (!paperRepoStatus) return;
+    state.paperRepo.uploadStatus = message || '';
+    paperRepoStatus.textContent = state.paperRepo.uploadStatus;
+    paperRepoStatus.classList.remove('is-error', 'is-success');
+    if (variant === 'error') {
+        paperRepoStatus.classList.add('is-error');
+    } else if (variant === 'success') {
+        paperRepoStatus.classList.add('is-success');
+    }
+}
+
+function setPaperRepoListStatus(message, variant) {
+    if (!paperRepoListStatus) return;
+    paperRepoListStatus.textContent = message || '';
+    paperRepoListStatus.classList.remove('is-error', 'is-success');
+    if (variant === 'error') {
+        paperRepoListStatus.classList.add('is-error');
+    } else if (variant === 'success') {
+        paperRepoListStatus.classList.add('is-success');
+    }
+}
+
+function normalizePaperImage(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const url = typeof raw.url === 'string' ? raw.url : null;
+    const resizedUrl = typeof raw.resizedUrl === 'string' ? raw.resizedUrl : null;
+    const src = resolveMediaUrl(resizedUrl || url);
+
+    if (!src) {
+        return null;
+    }
+
+    return {
+        id: raw.id || '',
+        originalName:
+            typeof raw.originalName === 'string' && raw.originalName.trim()
+                ? raw.originalName.trim()
+                : '未命名图片',
+        url,
+        resizedUrl,
+        src,
+        createdAt: raw.createdAt || ''
+    };
+}
+
+function normalizePaperRecord(raw) {
+    if (!raw || typeof raw !== 'object') {
+        return null;
+    }
+
+    const images = Array.isArray(raw.images) ? raw.images.map(normalizePaperImage).filter(Boolean) : [];
+
+    return {
+        id: raw.id || '',
+        title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : '未命名试卷',
+        createdAt: raw.createdAt || '',
+        images
+    };
+}
+
+function renderPaperRepoList() {
+    if (!paperRepoList) return;
+
+    paperRepoList.innerHTML = '';
+
+    const { items, isLoading, error } = state.paperRepo;
+
+    if (isLoading) {
+        setPaperRepoListStatus('正在加载试卷列表…');
+        return;
+    }
+
+    if (error) {
+        setPaperRepoListStatus(error, 'error');
+        return;
+    }
+
+    if (!items.length) {
+        setPaperRepoListStatus('还没有保存的试卷，先上传几张吧。');
+        return;
+    }
+
+    setPaperRepoListStatus('');
+
+    const fragment = document.createDocumentFragment();
+    items.forEach((paper, index) => {
+        const card = buildPaperCard(paper, index === 0);
+        fragment.appendChild(card);
+    });
+
+    paperRepoList.appendChild(fragment);
+}
+
+function buildPaperCard(paper, defaultOpen = false) {
+    const details = document.createElement('details');
+    details.className = 'paper-card';
+    details.open = defaultOpen;
+
+    const summary = document.createElement('summary');
+    summary.className = 'paper-card__summary';
+
+    const title = document.createElement('h4');
+    title.className = 'paper-card__title';
+    title.textContent = paper.title;
+    summary.appendChild(title);
+
+    const meta = document.createElement('p');
+    meta.className = 'paper-card__meta';
+    const count = document.createElement('span');
+    count.textContent = `${paper.images.length} 张图片`;
+    meta.appendChild(count);
+
+    const created = formatDateTimeWithMinutes(paper.createdAt);
+    if (created) {
+        const date = document.createElement('span');
+        date.textContent = created;
+        meta.appendChild(date);
+    }
+
+    summary.appendChild(meta);
+    details.appendChild(summary);
+
+    const imagesContainer = document.createElement('div');
+    imagesContainer.className = 'paper-card__images';
+
+    if (!paper.images.length) {
+        const empty = document.createElement('p');
+        empty.className = 'paper-repo__list-status';
+        empty.textContent = '暂无图片可展示。';
+        details.appendChild(empty);
+    } else {
+        paper.images.forEach((image) => {
+            const figure = document.createElement('figure');
+            figure.className = 'paper-card__figure';
+
+            const img = document.createElement('img');
+            img.src = image.src;
+            img.alt = image.originalName;
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            figure.appendChild(img);
+
+            const caption = document.createElement('figcaption');
+            caption.className = 'paper-card__caption';
+            caption.textContent = image.originalName;
+            figure.appendChild(caption);
+
+            imagesContainer.appendChild(figure);
+        });
+
+        details.appendChild(imagesContainer);
+    }
+
+    return details;
+}
+
+async function loadPaperRepo(options = {}) {
+    if (!paperRepoPanel) {
+        return;
+    }
+
+    const { force = false, lazy = false } = options;
+
+    if (state.paperRepo.isLoading) {
+        return;
+    }
+
+    if (!force && lazy && state.paperRepo.lastLoadedAt) {
+        renderPaperRepoList();
+        return;
+    }
+
+    state.paperRepo.isLoading = true;
+    state.paperRepo.error = '';
+    setPaperRepoListStatus('正在加载试卷列表…');
+
+    try {
+        const response = await fetch('/api/papers', { cache: 'no-store' });
+        const payload = await response.json().catch(() => []);
+        if (!response.ok) {
+            throw new Error(payload?.error || '无法读取试卷列表。');
+        }
+
+        const papers = Array.isArray(payload)
+            ? payload.map(normalizePaperRecord).filter(Boolean)
+            : [];
+        state.paperRepo.items = papers;
+        state.paperRepo.lastLoadedAt = Date.now();
+        renderPaperRepoList();
+    } catch (error) {
+        console.error(error);
+        state.paperRepo.error = error?.message || '无法加载试卷仓库。';
+        setPaperRepoListStatus(state.paperRepo.error, 'error');
+    } finally {
+        state.paperRepo.isLoading = false;
+    }
+}
+
+async function submitPaperRepoForm() {
+    if (!paperRepoForm) return;
+
+    const title = (paperRepoTitleInput?.value || '').toString().trim();
+    const files = Array.from(paperRepoImagesInput?.files || []).filter((file) => file && file.size > 0);
+
+    if (!title) {
+        setPaperRepoStatus('请填写试卷名称，例如“2025 年期中数学”。', 'error');
+        paperRepoTitleInput?.focus();
+        return;
+    }
+
+    if (!files.length) {
+        setPaperRepoStatus('请至少选择一张试卷照片。', 'error');
+        paperRepoImagesInput?.focus();
+        return;
+    }
+
+    const submitButton = paperRepoForm.querySelector('button[type="submit"]');
+    if (submitButton) {
+        submitButton.disabled = true;
+    }
+
+    setPaperRepoStatus('正在上传并保存试卷…');
+
+    const formData = new FormData();
+    formData.append('title', title);
+    files.forEach((file) => {
+        formData.append('images', file);
+    });
+
+    try {
+        const response = await fetch('/api/papers', {
+            method: 'POST',
+            body: formData
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload?.error || '无法保存试卷。');
+        }
+
+        const saved = normalizePaperRecord(payload);
+        if (saved) {
+            state.paperRepo.items = [saved, ...state.paperRepo.items];
+            state.paperRepo.lastLoadedAt = Date.now();
+            renderPaperRepoList();
+        }
+
+        paperRepoForm.reset();
+        setPaperRepoStatus('已保存到试卷仓库。', 'success');
+    } catch (error) {
+        console.error(error);
+        setPaperRepoStatus(error?.message || '无法保存试卷。', 'error');
+    } finally {
+        if (submitButton) {
+            submitButton.disabled = false;
+        }
+    }
+}
 async function init() {
     try {
         const response = await fetch('/api/entries');
@@ -5938,6 +6296,7 @@ async function init() {
         console.error(error);
         alert('Unable to load saved entries.');
     } finally {
+        await loadPaperRepo({ lazy: true });
         await loadActivityLog();
     }
 }
