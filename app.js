@@ -773,7 +773,16 @@ multiAiForm?.addEventListener('submit', async (event) => {
         state.multiAi.progress = Array.isArray(payload?.steps) ? payload.steps : [];
         renderMultiAiProgress();
         renderMultiAiResults(payload);
-        setMultiAiStatus('多 AI 答题完成。', 'success');
+        const failedProviders = Array.isArray(payload?.failedProviders) ? payload.failedProviders : [];
+        if (failedProviders.length > 0) {
+            const failedNames = failedProviders
+                .map((item) => item?.name || item?.provider)
+                .filter(Boolean)
+                .join('、');
+            setMultiAiStatus(`多 AI 答题完成，但以下 AI 调用失败：${failedNames}。`, 'warning');
+        } else {
+            setMultiAiStatus('多 AI 答题完成。', 'success');
+        }
     } catch (error) {
         console.error('Failed to run multi AI workflow', error);
         setMultiAiStatus(error?.message || '无法完成多 AI 答题。', 'error');
@@ -2932,10 +2941,12 @@ function hidePhotoCheckProgress() {
 function setMultiAiStatus(message, variant) {
     if (!multiAiStatus) return;
     multiAiStatus.textContent = message || '';
-    multiAiStatus.classList.remove('is-error', 'is-success');
+    multiAiStatus.classList.remove('is-error', 'is-success', 'is-warning');
     if (!variant) return;
     if (variant === 'error') {
         multiAiStatus.classList.add('is-error');
+    } else if (variant === 'warning') {
+        multiAiStatus.classList.add('is-warning');
     } else if (variant === 'success') {
         multiAiStatus.classList.add('is-success');
     }
@@ -2973,6 +2984,8 @@ function renderMultiAiProgress() {
         li.classList.add('multi-ai-progress__item');
         if (step.status === 'error') {
             li.classList.add('is-error');
+        } else if (step.status === 'warning') {
+            li.classList.add('is-warning');
         } else if (step.status === 'success') {
             li.classList.add('is-success');
         }
@@ -3043,12 +3056,16 @@ function createMultiAiRoundSection(titleText, answers) {
         li.classList.add('multi-ai-results__item');
         const header = document.createElement('div');
         header.classList.add('multi-ai-results__title');
-        header.textContent = `${item.name || item.provider || 'AI'}：${item.status || '完成'}`;
+        const statusText = item.status === 'error' ? '失败' : item.status || '完成';
+        header.textContent = `${item.name || item.provider || 'AI'}：${statusText}`;
         li.appendChild(header);
 
         const body = document.createElement('div');
         body.classList.add('multi-ai-results__body');
-        body.textContent = item.output || item.answer || '暂无输出。';
+        body.textContent =
+            item.status === 'error'
+                ? item.error || 'AI 调用失败，未返回结果。'
+                : item.output || item.answer || '暂无输出。';
         li.appendChild(body);
 
         if (item.analysis) {
