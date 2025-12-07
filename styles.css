@@ -1295,6 +1295,23 @@ select:focus {
     color: var(--accent);
 }
 
+.btn-link {
+    background: transparent;
+    color: var(--text-muted);
+    box-shadow: none;
+}
+
+.btn-link:hover {
+    color: var(--text);
+    text-decoration: underline;
+    box-shadow: none;
+    transform: none;
+}
+
+.text-danger {
+    color: var(--danger);
+}
+
 .btn-ghost {
     background: transparent;
     color: var(--text-muted);
@@ -2037,6 +2054,14 @@ select:focus {
     gap: 0.6rem;
     color: var(--text-muted);
     font-size: 0.9rem;
+}
+
+.paper-card__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 0.25rem;
 }
 
 .paper-card__remark {
