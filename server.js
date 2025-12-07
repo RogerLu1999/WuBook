@@ -491,6 +491,66 @@ app.get('/api/papers', async (req, res) => {
     }
 });
 
+app.put('/api/papers/:id', async (req, res) => {
+    const id = req.params?.id;
+    if (!id) {
+        return res.status(400).json({ error: '缺少试卷编号。' });
+    }
+
+    const title = (req.body?.title || '').toString().trim();
+    const subject = (req.body?.subject || '').toString().trim();
+    const semester = (req.body?.semester || '').toString().trim();
+    const remark = (req.body?.remark || '').toString().trim();
+    const savedDateInput = (req.body?.savedDate || '').toString().trim();
+    const paperDateInput = (req.body?.paperDate || '').toString().trim();
+
+    if (!title) {
+        return res.status(400).json({ error: '请填写试卷名称。' });
+    }
+
+    try {
+        const papers = await readPaperRepo();
+        const index = papers.findIndex((paper) => paper.id === id);
+        if (index === -1) {
+            return res.status(404).json({ error: '未找到指定的试卷记录。' });
+        }
+
+        const savedAt = normalizeDateOnly(savedDateInput || papers[index].savedAt || papers[index].createdAt);
+        const paperDate = normalizeDateOnly(paperDateInput || papers[index].paperDate, savedAt);
+
+        const updated = {
+            ...papers[index],
+            title,
+            subject,
+            semester,
+            remark,
+            savedAt,
+            paperDate,
+            images: sortPaperImages(papers[index].images || [])
+        };
+
+        papers[index] = updated;
+        const sorted = sortByCreatedAtDesc(papers);
+        await writePaperRepo(sorted);
+
+        await logAction('update-paper', 'success', {
+            id,
+            title,
+            subject,
+            semester,
+            remark: Boolean(remark),
+            savedAt,
+            paperDate
+        });
+
+        res.json(updated);
+    } catch (error) {
+        console.error('Failed to update paper record', error);
+        await logAction('update-paper', 'error', { id, message: error.message });
+        res.status(500).json({ error: '无法更新试卷记录，请稍后重试。' });
+    }
+});
+
 app.post('/api/papers', upload.array('images', 30), async (req, res) => {
     const title = (req.body?.title || '').toString().trim();
     const subject = (req.body?.subject || '').toString().trim();
@@ -559,6 +619,46 @@ app.post('/api/papers', upload.array('images', 30), async (req, res) => {
         console.error('Failed to save paper record', error);
         await logAction('create-paper', 'error', { message: error.message });
         res.status(500).json({ error: '无法保存试卷记录，请稍后重试。' });
+    }
+});
+
+app.delete('/api/papers/:id', async (req, res) => {
+    const id = req.params?.id;
+    if (!id) {
+        return res.status(400).json({ error: '缺少试卷编号。' });
+    }
+
+    try {
+        const papers = await readPaperRepo();
+        const index = papers.findIndex((paper) => paper.id === id);
+        if (index === -1) {
+            return res.status(404).json({ error: '未找到指定的试卷记录。' });
+        }
+
+        const [removed] = papers.splice(index, 1);
+        await writePaperRepo(papers);
+
+        const mediaToRemove = [];
+        if (Array.isArray(removed.images)) {
+            removed.images.forEach((image) => {
+                mediaToRemove.push(image.url, image.resizedUrl);
+            });
+        }
+
+        await removeMedia(mediaToRemove);
+        await logAction('delete-paper', 'success', {
+            id,
+            title: removed.title,
+            subject: removed.subject,
+            semester: removed.semester,
+            images: Array.isArray(removed.images) ? removed.images.length : 0
+        });
+
+        res.json({ ok: true });
+    } catch (error) {
+        console.error('Failed to delete paper record', error);
+        await logAction('delete-paper', 'error', { id, message: error.message });
+        res.status(500).json({ error: '无法删除试卷记录，请稍后重试。' });
     }
 });
 

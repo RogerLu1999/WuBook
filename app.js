@@ -49,6 +49,7 @@ const state = {
         error: '',
         uploadStatus: '',
         lastLoadedAt: null,
+        editingId: null,
         filters: {
             subject: '',
             semester: ''
@@ -238,6 +239,7 @@ const paperRepoSavedDateInput = document.getElementById('paper-repo-saved-date')
 const paperRepoPaperDateInput = document.getElementById('paper-repo-paper-date');
 const paperRepoImagesInput = document.getElementById('paper-repo-images');
 const paperRepoStatus = document.getElementById('paper-repo-status');
+const paperRepoCancelEditButton = document.getElementById('paper-repo-cancel-edit');
 const paperRepoListStatus = document.getElementById('paper-repo-list-status');
 const paperRepoList = document.getElementById('paper-repo-list');
 const paperRepoRefreshButton = document.getElementById('paper-repo-refresh');
@@ -641,6 +643,10 @@ paperRepoSemesterSelect?.addEventListener('change', () => {
     setPaperRepoStatus('');
 });
 
+paperRepoCancelEditButton?.addEventListener('click', () => {
+    exitPaperRepoEditMode();
+});
+
 paperRepoForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     await submitPaperRepoForm();
@@ -659,6 +665,26 @@ paperRepoSubjectFilter?.addEventListener('change', (event) => {
 paperRepoSemesterFilter?.addEventListener('change', (event) => {
     state.paperRepo.filters.semester = event.target.value;
     renderPaperRepoList();
+});
+
+paperRepoList?.addEventListener('click', async (event) => {
+    const actionButton = event.target.closest('[data-paper-action]');
+    if (!actionButton) return;
+
+    event.preventDefault();
+    const paperId = actionButton.dataset.paperId;
+    const action = actionButton.dataset.paperAction;
+    const paper = state.paperRepo.items.find((item) => item.id === paperId);
+    if (!paper) return;
+
+    if (action === 'edit') {
+        enterPaperRepoEditMode(paper);
+        return;
+    }
+
+    if (action === 'delete') {
+        await handleDeletePaper(paper);
+    }
 });
 
 photoCheckImageInput?.addEventListener('change', () => {
@@ -6192,6 +6218,7 @@ function applyPaperRepoLastSubject(subjectOverride) {
 function setPaperRepoDefaults(options = {}) {
     setPaperRepoDefaultDates(options);
     applyPaperRepoLastSubject();
+    setPaperRepoFormMode(state.paperRepo.editingId ? 'edit' : 'create');
 }
 
 function formatDateDisplay(iso) {
@@ -6401,6 +6428,61 @@ function setPaperRepoListStatus(message, variant) {
     }
 }
 
+function setPaperRepoFormMode(mode) {
+    const isEditing = mode === 'edit';
+    const submitButton = paperRepoForm?.querySelector('button[type="submit"]');
+    if (submitButton) {
+        submitButton.textContent = isEditing ? '保存修改' : '保存到试卷仓库';
+    }
+
+    if (paperRepoCancelEditButton) {
+        paperRepoCancelEditButton.hidden = !isEditing;
+    }
+
+    if (paperRepoImagesInput) {
+        paperRepoImagesInput.required = !isEditing;
+        if (isEditing) {
+            paperRepoImagesInput.value = '';
+        }
+    }
+}
+
+function exitPaperRepoEditMode() {
+    state.paperRepo.editingId = null;
+    paperRepoForm?.reset();
+    setPaperRepoDefaults({ force: true });
+    setPaperRepoStatus('');
+    setPaperRepoFormMode('create');
+}
+
+function enterPaperRepoEditMode(paper) {
+    if (!paper) return;
+    state.paperRepo.editingId = paper.id;
+    setPaperRepoFormMode('edit');
+
+    if (paperRepoTitleInput) {
+        paperRepoTitleInput.value = paper.title || '';
+    }
+    if (paperRepoSubjectInput) {
+        paperRepoSubjectInput.value = paper.subject || '';
+    }
+    if (paperRepoSemesterSelect) {
+        paperRepoSemesterSelect.value = paper.semester || '';
+    }
+    if (paperRepoRemarkInput) {
+        paperRepoRemarkInput.value = paper.remark || '';
+    }
+    if (paperRepoSavedDateInput) {
+        paperRepoSavedDateInput.value = toDateInputValue(paper.savedAt || paper.createdAt) || '';
+    }
+    if (paperRepoPaperDateInput) {
+        paperRepoPaperDateInput.value = toDateInputValue(paper.paperDate || paper.savedAt) || '';
+    }
+
+    setPaperRepoStatus('正在编辑已保存的试卷，可修改名称、学科、日期等信息。');
+    paperRepoTitleInput?.focus();
+}
+
 function normalizePaperImage(raw) {
     if (!raw || typeof raw !== 'object') {
         return null;
@@ -6570,6 +6652,39 @@ function renderPaperRepoList() {
     paperRepoList.appendChild(fragment);
 }
 
+function updatePaperRepoItem(updated) {
+    if (!updated || !updated.id) return;
+    state.paperRepo.items = state.paperRepo.items.map((item) => (item.id === updated.id ? updated : item));
+    state.paperRepo.lastLoadedAt = Date.now();
+    renderPaperRepoList();
+}
+
+async function handleDeletePaper(paper) {
+    if (!paper || !paper.id) return;
+    const confirmed = window.confirm(`确定要删除“${paper.title}”吗？图片文件也会一并移除。`);
+    if (!confirmed) return;
+
+    try {
+        setPaperRepoListStatus('正在删除试卷…');
+        const response = await fetch(`/api/papers/${encodeURIComponent(paper.id)}`, { method: 'DELETE' });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload?.error || '无法删除试卷。');
+        }
+
+        state.paperRepo.items = state.paperRepo.items.filter((item) => item.id !== paper.id);
+        setPaperRepoListStatus('试卷已删除。', 'success');
+        renderPaperRepoList();
+
+        if (state.paperRepo.editingId === paper.id) {
+            exitPaperRepoEditMode();
+        }
+    } catch (error) {
+        console.error(error);
+        setPaperRepoListStatus(error?.message || '无法删除试卷。', 'error');
+    }
+}
+
 function buildPaperCard(paper, defaultOpen = false) {
     const details = document.createElement('details');
     details.className = 'paper-card';
@@ -6620,6 +6735,27 @@ function buildPaperCard(paper, defaultOpen = false) {
     }
 
     summary.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'paper-card__actions';
+
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.className = 'btn btn-secondary btn-compact';
+    editButton.textContent = '编辑信息';
+    editButton.dataset.paperId = paper.id;
+    editButton.dataset.paperAction = 'edit';
+    actions.appendChild(editButton);
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'btn btn-link btn-compact text-danger';
+    deleteButton.textContent = '删除试卷';
+    deleteButton.dataset.paperId = paper.id;
+    deleteButton.dataset.paperAction = 'delete';
+    actions.appendChild(deleteButton);
+
+    summary.appendChild(actions);
 
     if (paper.remark) {
         const remark = document.createElement('p');
@@ -6716,6 +6852,7 @@ async function loadPaperRepo(options = {}) {
 async function submitPaperRepoForm() {
     if (!paperRepoForm) return;
 
+    const isEditing = Boolean(state.paperRepo.editingId);
     const title = (paperRepoTitleInput?.value || '').toString().trim();
     const subject = (paperRepoSubjectInput?.value || '').toString().trim();
     const semester = (paperRepoSemesterSelect?.value || '').toString().trim();
@@ -6724,8 +6861,11 @@ async function submitPaperRepoForm() {
     const paperDate = (paperRepoPaperDateInput?.value || '').toString().trim();
     const files = Array.from(paperRepoImagesInput?.files || []).filter((file) => file && file.size > 0);
     const today = toDateInputValue(new Date().toISOString());
-    const normalizedSavedDate = savedDate || today;
-    const normalizedPaperDate = paperDate || today;
+    const existing = isEditing
+        ? state.paperRepo.items.find((item) => item.id === state.paperRepo.editingId)
+        : null;
+    const normalizedSavedDate = savedDate || toDateInputValue(existing?.savedAt || existing?.createdAt) || today;
+    const normalizedPaperDate = paperDate || toDateInputValue(existing?.paperDate || normalizedSavedDate) || today;
 
     if (!savedDate && paperRepoSavedDateInput) {
         paperRepoSavedDateInput.value = normalizedSavedDate;
@@ -6741,7 +6881,7 @@ async function submitPaperRepoForm() {
         return;
     }
 
-    if (!files.length) {
+    if (!files.length && !isEditing) {
         setPaperRepoStatus('请至少选择一张试卷照片。', 'error');
         paperRepoImagesInput?.focus();
         return;
@@ -6752,42 +6892,78 @@ async function submitPaperRepoForm() {
         submitButton.disabled = true;
     }
 
-    setPaperRepoStatus('正在上传并保存试卷…');
+    if (isEditing && !existing) {
+        setPaperRepoStatus('正在编辑的试卷不存在，请刷新后重试。', 'error');
+        if (submitButton) {
+            submitButton.disabled = false;
+        }
+        return;
+    }
 
-    const formData = new FormData();
-    formData.append('title', title);
-    formData.append('subject', subject);
-    formData.append('semester', semester);
-    formData.append('remark', remark);
-    formData.append('savedDate', normalizedSavedDate);
-    formData.append('paperDate', normalizedPaperDate);
-    files.forEach((file) => {
-        formData.append('images', file);
-    });
+    setPaperRepoStatus(isEditing ? '正在保存修改…' : '正在上传并保存试卷…');
 
     try {
-        const response = await fetch('/api/papers', {
-            method: 'POST',
-            body: formData
-        });
+        if (isEditing) {
+            const response = await fetch(`/api/papers/${encodeURIComponent(state.paperRepo.editingId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title,
+                    subject,
+                    semester,
+                    remark,
+                    savedDate: normalizedSavedDate,
+                    paperDate: normalizedPaperDate
+                })
+            });
 
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            throw new Error(payload?.error || '无法保存试卷。');
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload?.error || '无法保存修改。');
+            }
+
+            const updated = normalizePaperRecord(payload);
+            if (updated) {
+                updatePaperRepoItem(updated);
+            }
+
+            setPaperRepoStatus('修改已保存。', 'success');
+            exitPaperRepoEditMode();
+        } else {
+            const formData = new FormData();
+            formData.append('title', title);
+            formData.append('subject', subject);
+            formData.append('semester', semester);
+            formData.append('remark', remark);
+            formData.append('savedDate', normalizedSavedDate);
+            formData.append('paperDate', normalizedPaperDate);
+            files.forEach((file) => {
+                formData.append('images', file);
+            });
+
+            const response = await fetch('/api/papers', {
+                method: 'POST',
+                body: formData
+            });
+
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload?.error || '无法保存试卷。');
+            }
+
+            const saved = normalizePaperRecord(payload);
+            if (saved) {
+                state.paperRepo.items = [saved, ...state.paperRepo.items];
+                state.paperRepo.lastLoadedAt = Date.now();
+                renderPaperRepoList();
+            }
+
+            paperRepoForm.reset();
+            rememberLastSubject(subject);
+            applyPaperRepoLastSubject(subject);
+            setPaperRepoDefaultDates({ force: true });
+            setPaperRepoStatus('已保存到试卷仓库。', 'success');
         }
-
-        const saved = normalizePaperRecord(payload);
-        if (saved) {
-            state.paperRepo.items = [saved, ...state.paperRepo.items];
-            state.paperRepo.lastLoadedAt = Date.now();
-            renderPaperRepoList();
-        }
-
-        paperRepoForm.reset();
-        rememberLastSubject(subject);
-        applyPaperRepoLastSubject(subject);
-        setPaperRepoDefaultDates({ force: true });
-        setPaperRepoStatus('已保存到试卷仓库。', 'success');
     } catch (error) {
         console.error(error);
         setPaperRepoStatus(error?.message || '无法保存试卷。', 'error');
