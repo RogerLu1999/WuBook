@@ -2279,7 +2279,11 @@ function filteredEntries() {
                 .toLowerCase();
             return haystack.includes(search);
         })
-        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+        .sort((a, b) => {
+            const aCreatedAt = a.createdAt ? new Date(a.createdAt) : new Date(0);
+            const bCreatedAt = b.createdAt ? new Date(b.createdAt) : new Date(0);
+            return bCreatedAt - aCreatedAt;
+        });
 }
 
 function pruneSelection() {
