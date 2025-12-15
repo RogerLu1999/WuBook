@@ -5441,6 +5441,33 @@ function sanitizeRichText(value) {
     return cleaned.trim();
 }
 
+function decodeHtmlEntities(text) {
+    if (!text) return '';
+    return text.replace(/&(#\d+|#x[0-9a-fA-F]+|\w+);/g, (match, entity) => {
+        if (entity[0] === '#') {
+            const codePoint = entity[1].toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
+            return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+        }
+
+        switch (entity.toLowerCase()) {
+            case 'lt':
+                return '<';
+            case 'gt':
+                return '>';
+            case 'amp':
+                return '&';
+            case 'quot':
+                return '"';
+            case 'apos':
+                return "'";
+            case 'nbsp':
+                return ' ';
+            default:
+                return match;
+        }
+    });
+}
+
 function richTextToPlainText(html) {
     if (!html) return '';
     const safe = sanitizeRichText(html);
@@ -5450,7 +5477,8 @@ function richTextToPlainText(html) {
         .replace(/<\/(p|div)>/gi, '\n')
         .replace(/<\s*li\s*>/gi, '\n• ')
         .replace(/<\/(ul|ol)>/gi, '\n');
-    return replaced.replace(/<[^>]+>/g, '').replace(/\n{2,}/g, '\n').trim();
+    const decoded = decodeHtmlEntities(replaced);
+    return decoded.replace(/<[^>]+>/g, '').replace(/\n{2,}/g, '\n').trim();
 }
 
 function hasRichTextContent(html) {
