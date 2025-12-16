@@ -4535,7 +4535,7 @@ function buildPhotoCheckBatchSummaryText(batches, overall) {
     const totalPhotos = Array.isArray(batches) ? batches.length : 0;
 
     if (totalPhotos === 0) {
-        return '未能从照片中识别出题目。本次检查通常会调用 3 次 AI（qwen 识别题目、qwen 复核答案、kimi 复核答案）。';
+        return '未能从照片中识别出题目。本次检查通常会调用 2 次 AI（qwen 识别并复核、openai 复核答案）。';
     }
 
     const parts = [`本次共检查 ${totalPhotos} 张照片`];
@@ -4815,7 +4815,6 @@ function createPhotoCheckProblemRow(batch, row, attemptOrder, attemptMetadata) {
 
     const providers = [
         { key: 'qwen', heading: 'Qwen 结果', preferLatest: true },
-        { key: 'kimi', heading: 'Kimi 结果' },
         { key: 'openai', heading: 'OpenAI 结果' }
     ];
 
@@ -5304,7 +5303,7 @@ function formatPhotoCheckAttemptSummary(attempt, { withPrefix = false } = {}) {
 
 function buildPhotoCheckOverallSummary(attempts) {
     if (!Array.isArray(attempts) || attempts.length === 0) {
-        return '未能从照片中识别出题目。本次检查通常会调用 3 次 AI（qwen 识别题目、qwen 复核答案、kimi 复核答案）。';
+        return '未能从照片中识别出题目。本次检查通常会调用 2 次 AI（qwen 识别并复核、openai 复核答案）。';
     }
 
     const includePrefix = attempts.length > 1;
@@ -5313,7 +5312,7 @@ function buildPhotoCheckOverallSummary(attempts) {
         .filter((text) => Boolean(text && text.trim()));
 
     if (parts.length === 0) {
-        return '未能从照片中识别出题目。本次检查通常会调用 3 次 AI（qwen 识别题目、qwen 复核答案、kimi 复核答案）。';
+        return '未能从照片中识别出题目。本次检查通常会调用 2 次 AI（qwen 识别并复核、openai 复核答案）。';
     }
 
     const workflowSummary = buildPhotoCheckWorkflowSummary(attempts);

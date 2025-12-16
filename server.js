@@ -48,7 +48,6 @@ const PAPER_REPO_DIR = path.join(DATA_DIR, 'paper-repo');
 const PAPER_REPO_FILE = path.join(PAPER_REPO_DIR, 'papers.json');
 const MULTI_AI_PROVIDERS = [
     { id: 'qwen', name: 'qwen', label: 'Qwen' },
-    { id: 'kimi', name: 'kimi', label: 'Kimi' },
     { id: 'chatgpt', name: 'chatgpt', label: 'ChatGPT' }
 ];
 const ALLOWED_RICH_TEXT_TAGS = new Set([
@@ -256,20 +255,6 @@ const preferIPv4Lookup =
 async function verifyExternalConnections() {
     const checks = [];
 
-    if (process.env.MOONSHOT_API_KEY) {
-        checks.push(
-            verifyKimiConnectivity()
-                .then(() => {
-                    console.log('Kimi connectivity check succeeded.');
-                })
-                .catch((error) => {
-                    console.warn('Kimi connectivity check failed', error);
-                })
-        );
-    } else {
-        console.warn('Skipping Kimi connectivity check because MOONSHOT_API_KEY is not configured.');
-    }
-
     if (process.env.OPENAI_API_KEY) {
         checks.push(
             verifyOpenAIConnectivity()
@@ -336,54 +321,6 @@ async function verifyOpenAIConnectivity() {
         request.on('timeout', () => {
             request.destroy(
                 Object.assign(new Error('OpenAI API 连通性检查超时。'), {
-                    code: 'ETIMEDOUT'
-                })
-            );
-        });
-
-        request.on('error', reject);
-        request.end();
-    });
-}
-
-async function verifyKimiConnectivity() {
-    const endpointUrl = new URL('https://api.moonshot.cn/v1/chat/completions');
-    const hostname = endpointUrl.hostname;
-
-    if (dns.promises?.lookup) {
-        const lookupResult = await dns.promises.lookup(hostname, { family: 4 }).catch((error) => {
-            throw Object.assign(new Error(`无法解析 Kimi API 域名 ${hostname}：${error.message}`), {
-                cause: error
-            });
-        });
-
-        if (!lookupResult || !lookupResult.address) {
-            throw new Error(`Kimi API 域名 ${hostname} 未返回有效的 IPv4 地址。`);
-        }
-    }
-
-    await new Promise((resolve, reject) => {
-        const request = https.request(
-            {
-                protocol: endpointUrl.protocol,
-                hostname,
-                port: endpointUrl.port || 443,
-                method: 'HEAD',
-                path: '/',
-                timeout: Number(process.env.MOONSHOT_TIMEOUT_MS) || 5000,
-                lookup: preferIPv4Lookup
-            },
-            (response) => {
-                response.resume();
-                response.once('end', resolve);
-                response.once('close', resolve);
-                response.once('error', reject);
-            }
-        );
-
-        request.on('timeout', () => {
-            request.destroy(
-                Object.assign(new Error('Kimi API 连通性检查超时。'), {
                     code: 'ETIMEDOUT'
                 })
             );
@@ -763,7 +700,7 @@ app.post('/api/photo-check', photoCheckUpload, async (req, res) => {
                 const originalName = getUploadedFileName(file);
 
                 await logAction('photo-check', 'success', {
-                    provider: 'qwen+kimi+openai',
+                    provider: 'qwen+openai',
                     total: summary.total,
                     correct: summary.correct,
                     incorrect: summary.incorrect,
@@ -1880,15 +1817,6 @@ async function reviewPhotoCheckProblemsWithMultipleModels(problems) {
     }
 
     try {
-        const attempt = await reviewPhotoCheckProblemsWithKimi(clonePhotoCheckProblems(problems));
-        if (attempt) {
-            attempts.push({ ...attempt, provider: attempt.provider || 'kimi' });
-        }
-    } catch (error) {
-        console.warn('Failed to review problems with Kimi', error);
-    }
-
-    try {
         const attempt = await reviewPhotoCheckProblemsWithOpenAI(clonePhotoCheckProblems(problems));
         if (attempt) {
             attempts.push({ ...attempt, provider: attempt.provider || 'openai' });
@@ -2732,8 +2660,6 @@ async function callMultiAiProvider(provider, systemPrompt, userPrompt, action) {
     switch (provider?.id) {
         case 'qwen':
             return chatWithQwen(messages, action);
-        case 'kimi':
-            return chatWithKimi(messages, action);
         case 'chatgpt':
             return chatWithOpenAi(messages, action);
         default:
