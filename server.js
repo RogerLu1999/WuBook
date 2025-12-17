@@ -4864,6 +4864,9 @@ function normalizeMathTextBase(text, options = {}) {
     if (convertFractions) {
         normalized = replaceLatexFractions(normalized);
     }
+    normalized = replaceLatexTextCommands(normalized);
+    normalized = normalized.replace(/\\(quad|qquad)/g, ' ');
+    normalized = normalized.replace(/\\,/g, ' ');
     normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√($1)');
     normalized = normalized.replace(/\\cdot/g, '·');
     normalized = replaceLatexSymbols(normalized);
@@ -4931,6 +4934,32 @@ function replaceLatexFractions(text) {
         result += `(${numerator.content})/(${denominator.content})`;
         cursor = denominator.endIndex + 1;
         fractionRegex.lastIndex = cursor;
+    }
+
+    return result + text.slice(cursor);
+}
+
+function replaceLatexTextCommands(text) {
+    if (!text) return '';
+
+    const commandRegex = /\\(text|mathrm|operatorname)\s*\{/g;
+    let result = '';
+    let cursor = 0;
+    let match;
+
+    while ((match = commandRegex.exec(text))) {
+        const braceIndex = commandRegex.lastIndex - 1;
+        const content = extractBalancedBraces(text, braceIndex);
+        if (!content) {
+            result += text.slice(cursor, commandRegex.lastIndex);
+            cursor = commandRegex.lastIndex;
+            continue;
+        }
+
+        result += text.slice(cursor, match.index);
+        result += content.content;
+        cursor = content.endIndex + 1;
+        commandRegex.lastIndex = cursor;
     }
 
     return result + text.slice(cursor);
