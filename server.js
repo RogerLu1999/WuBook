@@ -4813,12 +4813,19 @@ async function loadImageForDoc(doc, url, options = {}) {
 function replaceWithScript(text, pattern, map) {
     return text.replace(pattern, (match, grouped, simple) => {
         const content = (grouped || simple || '').trim();
-        if (!content) return '';
+        if (!content) return match;
         let transformed = '';
+        let replaced = false;
         for (const char of content) {
-            transformed += map.get(char) || char;
+            const mapped = map.get(char);
+            if (mapped) {
+                transformed += mapped;
+                replaced = true;
+            } else {
+                transformed += char;
+            }
         }
-        return transformed;
+        return replaced ? transformed : match;
     });
 }
 
@@ -4861,6 +4868,8 @@ function normalizeMathTextBase(text, options = {}) {
     if (!text) return '';
 
     let normalized = text.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
+    normalized = normalized.replace(/\\_/g, '_');
+    normalized = normalized.replace(/\\\s+/g, ' ');
     if (convertFractions) {
         normalized = replaceLatexFractions(normalized);
     }
@@ -4870,6 +4879,7 @@ function normalizeMathTextBase(text, options = {}) {
     normalized = normalized.replace(/\\sqrt\s*\{([^}]*)\}/g, '√($1)');
     normalized = normalized.replace(/\\cdot/g, '·');
     normalized = replaceLatexSymbols(normalized);
+    normalized = normalized.replace(/\\(?![a-zA-Z])/g, '');
     normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
     normalized = replaceWithScript(normalized, /_\{([^}]+)\}|_(\S)/g, SUBSCRIPT_MAP);
     normalized = normalized.replace(/\s+/g, ' ');
@@ -5532,4 +5542,3 @@ async function readLogs(limit) {
         throw error;
     }
 }
-
