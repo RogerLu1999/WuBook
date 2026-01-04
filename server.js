@@ -102,7 +102,8 @@ const SUPERSCRIPT_MAP = new Map([
     [')', '⁾'],
     ['x', 'ˣ'],
     ['y', 'ʸ'],
-    ['n', 'ⁿ']
+    ['n', 'ⁿ'],
+    ['°', '°']
 ]);
 const SUBSCRIPT_MAP = new Map([
     ['0', '₀'],
