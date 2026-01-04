@@ -4647,6 +4647,35 @@ async function createPaperExport(entries, options = {}) {
         const questionNumber = index + 1;
         const questionParagraphs = [];
         const createNumberPrefix = () => new TextRun({ text: `${questionNumber}. `, bold: true, size: DOCX_FONT_SIZE });
+        const questionImageUrl = entry.questionImageResizedUrl || entry.questionImageUrl;
+        let questionImage = null;
+        if (questionImageUrl) {
+            let ensureResult = { scale: parseScale(entry.questionImageScale), updated: false };
+            if (ensureResult.scale === null) {
+                ensureResult = await ensureImageScale(entry, 'question');
+            }
+
+            let imageScale = parseScale(ensureResult.scale);
+            if (imageScale === null) {
+                imageScale = 1;
+            } else {
+                const previousScale = entry.questionImageScale;
+                entry.questionImageScale = imageScale;
+                if (previousScale !== imageScale && entry.id) {
+                    entry.updatedAt = new Date().toISOString();
+                    updatedEntryIds.add(entry.id);
+                }
+            }
+
+            if (ensureResult.updated && entry.id) {
+                updatedEntryIds.add(entry.id);
+            }
+
+            questionImage = await loadImageForDoc(doc, questionImageUrl, {
+                scale: imageScale,
+                baseMaxWidth: PAPER_IMAGE_BASE_WIDTH
+            });
+        }
 
         if (mode !== 'question-only') {
             const metaParts = [];
@@ -4676,37 +4705,18 @@ async function createPaperExport(entries, options = {}) {
             questionParagraphs.push(
                 new Paragraph({
                     children: paragraphChildren,
-                    spacing: { after: 200 }
+                    spacing: { after: questionImage ? 120 : 200 }
                 })
             );
+            if (questionImage) {
+                questionParagraphs.push(
+                    new Paragraph({
+                        children: [questionImage],
+                        spacing: { after: 200 }
+                    })
+                );
+            }
         } else {
-            const questionImageUrl = entry.questionImageResizedUrl || entry.questionImageUrl;
-            let ensureResult = { scale: parseScale(entry.questionImageScale), updated: false };
-            if (ensureResult.scale === null && questionImageUrl) {
-                ensureResult = await ensureImageScale(entry, 'question');
-            }
-
-            let imageScale = parseScale(ensureResult.scale);
-            if (imageScale === null) {
-                imageScale = 1;
-            } else {
-                const previousScale = entry.questionImageScale;
-                entry.questionImageScale = imageScale;
-                if (previousScale !== imageScale && entry.id) {
-                    entry.updatedAt = new Date().toISOString();
-                    updatedEntryIds.add(entry.id);
-                }
-            }
-
-            if (ensureResult.updated && entry.id) {
-                updatedEntryIds.add(entry.id);
-            }
-
-            const questionImage = await loadImageForDoc(doc, questionImageUrl, {
-                scale: imageScale,
-                baseMaxWidth: PAPER_IMAGE_BASE_WIDTH
-            });
-
             if (questionImage) {
                 const noBorder = () => ({ style: BorderStyle.NONE, size: 0, color: 'FFFFFF' });
                 const invisibleBorders = {
