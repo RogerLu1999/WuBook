@@ -4040,7 +4040,7 @@ function createPhotoCheckSaveItem(item, draft) {
         placeholder.value = '';
         placeholder.textContent = '请选择';
         semesterInput.appendChild(placeholder);
-        ['八上', '八下', '九上', '九下'].forEach((value) => {
+        ['八上', '八下', '九上', '九下', '中考一模'].forEach((value) => {
             const option = document.createElement('option');
             option.value = value;
             option.textContent = value;
