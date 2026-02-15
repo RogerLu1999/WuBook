@@ -109,6 +109,7 @@ const importInput = document.getElementById('import-input');
 const exportBtn = document.getElementById('export-btn');
 const exportPaperBtn = document.getElementById('export-paper-btn');
 const paperModeToggle = document.getElementById('paper-mode-questions-only');
+const paperSourcePrefixToggle = document.getElementById('paper-mode-source-prefix');
 const clearBtn = document.getElementById('clear-btn');
 const entriesContainer = document.getElementById('entries');
 const entriesTable = document.getElementById('entries-table');
@@ -403,7 +404,12 @@ const STORAGE_KEYS = {
     sourceHistory: 'wubook:sourceHistory',
     subjectHistory: 'wubook:subjectHistory',
     questionTypeHistory: 'wubook:questionTypeHistory',
-    paperExportMode: 'wubook:paperExportMode'
+    paperExportMode: 'wubook:paperExportMode',
+    paperSourcePrefixEnabled: 'wubook:paperSourcePrefixEnabled',
+    lastSemester: 'wubook:lastSemester',
+    lastErrorReason: 'wubook:lastErrorReason',
+    lastRemark: 'wubook:lastRemark',
+    lastQuestionType: 'wubook:lastQuestionType'
 };
 
 const SUBJECT_BASE_OPTIONS = ['数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理', '政治', '科学'];
@@ -423,11 +429,17 @@ const PAPER_EXPORT_MODES = {
 };
 
 let paperExportMode = getSavedPaperExportMode();
+let paperSourcePrefixEnabled = getSavedPaperSourcePrefixEnabled();
 syncPaperExportModeToggle();
+syncPaperSourcePrefixToggle();
 
 paperModeToggle?.addEventListener('change', () => {
     const mode = paperModeToggle.checked ? PAPER_EXPORT_MODES.QUESTION_ONLY : PAPER_EXPORT_MODES.DETAILED;
     setPaperExportMode(mode);
+});
+
+paperSourcePrefixToggle?.addEventListener('change', () => {
+    setPaperSourcePrefixEnabled(Boolean(paperSourcePrefixToggle.checked));
 });
 
 let exportInProgress = null;
@@ -441,6 +453,7 @@ let wizardRecognizedText = '';
 
 setCreatedAtDefaultValue();
 setDefaultSubjectAndSemester();
+applyEntryFormPersistentDefaults();
 setPaperRepoDefaults();
 updateEntryFormSuggestions();
 initRichTextEditors();
@@ -458,8 +471,7 @@ entryForm.addEventListener('submit', async (event) => {
     const saved = await submitEntry(new FormData(entryForm));
     if (!saved) return;
     entryForm.reset();
-    setCreatedAtDefaultValue();
-    setDefaultSubjectAndSemester();
+    applyEntryFormPersistentDefaults();
     setRichTextValue('question-text', '');
     setRichTextValue('answer-text', '');
     hideEntryPanel();
@@ -1073,6 +1085,10 @@ async function submitEntry(formData) {
         const entry = await response.json();
         rememberLastSubject(subject);
         rememberLastSource(source);
+        rememberLastSemester(semester);
+        rememberLastErrorReason(errorReason);
+        rememberLastRemark(remark);
+        rememberLastQuestionType(questionType);
         rememberHistoryValue(STORAGE_KEYS.sourceHistory, source);
         rememberHistoryValue(STORAGE_KEYS.subjectHistory, subject);
         rememberHistoryValue(STORAGE_KEYS.questionTypeHistory, questionType);
@@ -1108,7 +1124,10 @@ exportPaperBtn?.addEventListener('click', async () => {
         endpoint: '/api/entries/export-paper',
         fallbackName: `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`,
         errorMessage: 'Failed to export paper.',
-        payload: () => ({ mode: paperExportMode })
+        payload: () => ({
+            mode: paperExportMode,
+            sourcePrefixEnabled: paperSourcePrefixEnabled
+        })
     });
 });
 
@@ -2203,6 +2222,40 @@ function getSavedPaperExportMode() {
 
     return PAPER_EXPORT_MODES.DETAILED;
 }
+
+function setPaperSourcePrefixEnabled(enabled) {
+    paperSourcePrefixEnabled = Boolean(enabled);
+    syncPaperSourcePrefixToggle();
+
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return;
+    }
+
+    try {
+        window.localStorage.setItem(STORAGE_KEYS.paperSourcePrefixEnabled, paperSourcePrefixEnabled ? '1' : '0');
+    } catch (error) {
+        console.warn('Unable to persist paper source prefix option.', error);
+    }
+}
+
+function getSavedPaperSourcePrefixEnabled() {
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return false;
+    }
+
+    try {
+        return window.localStorage.getItem(STORAGE_KEYS.paperSourcePrefixEnabled) === '1';
+    } catch (error) {
+        console.warn('Unable to read paper source prefix option.', error);
+        return false;
+    }
+}
+
+function syncPaperSourcePrefixToggle() {
+    if (!paperSourcePrefixToggle) return;
+    paperSourcePrefixToggle.checked = Boolean(paperSourcePrefixEnabled);
+}
+
 
 function syncPaperExportModeToggle() {
     if (!paperModeToggle) {
@@ -6142,6 +6195,72 @@ function setCreatedAtDefaultValue() {
     if (wizardCreatedAtInput && !wizardCreatedAtInput.value) {
         wizardCreatedAtInput.value = defaultValue;
     }
+}
+
+function readStoredTextValue(key) {
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return '';
+    }
+
+    try {
+        return (window.localStorage.getItem(key) || '').toString().trim();
+    } catch (error) {
+        return '';
+    }
+}
+
+function rememberLastSemester(value) {
+    rememberLastTextValue(STORAGE_KEYS.lastSemester, value);
+}
+
+function rememberLastErrorReason(value) {
+    rememberLastTextValue(STORAGE_KEYS.lastErrorReason, value);
+}
+
+function rememberLastRemark(value) {
+    rememberLastTextValue(STORAGE_KEYS.lastRemark, value);
+}
+
+function rememberLastQuestionType(value) {
+    rememberLastTextValue(STORAGE_KEYS.lastQuestionType, value);
+}
+
+function rememberLastTextValue(key, value) {
+    const normalized = (value ?? '').toString().trim();
+    if (!LOCAL_STORAGE_AVAILABLE) return;
+
+    try {
+        window.localStorage.setItem(key, normalized);
+    } catch (error) {
+        console.warn(`Unable to persist value for ${key}.`, error);
+    }
+}
+
+function applyEntryFormPersistentDefaults() {
+    const defaultValue = todayDateValue();
+    if (createdAtInput) {
+        createdAtInput.value = defaultValue;
+    }
+
+    const defaultSubject = getLastSubject() || '数学';
+    const defaultSource = getLastSource();
+    const defaultSemester = readStoredTextValue(STORAGE_KEYS.lastSemester) || '八上';
+    const defaultErrorReason = readStoredTextValue(STORAGE_KEYS.lastErrorReason);
+    const defaultRemark = readStoredTextValue(STORAGE_KEYS.lastRemark);
+    const defaultQuestionType = readStoredTextValue(STORAGE_KEYS.lastQuestionType);
+
+    if (sourceInput) sourceInput.value = defaultSource;
+    if (subjectInput) subjectInput.value = defaultSubject;
+    if (semesterSelect) semesterSelect.value = defaultSemester;
+
+    const errorReasonInput = document.getElementById('error-reason');
+    if (errorReasonInput) errorReasonInput.value = defaultErrorReason;
+
+    const remarkInput = document.getElementById('remark');
+    if (remarkInput) remarkInput.value = defaultRemark;
+
+    const questionTypeInput = document.getElementById('question-type');
+    if (questionTypeInput) questionTypeInput.value = defaultQuestionType;
 }
 
 function setDefaultSubjectAndSemester() {
