@@ -5461,8 +5461,9 @@ function richTextToPlainText(html) {
         .replace(/<\/(p|div)>/gi, '\n')
         .replace(/<\s*li\s*>/gi, '\n• ')
         .replace(/<\/(ul|ol)>/gi, '\n');
-    const decoded = decodeHtmlEntities(replaced);
-    return decoded.replace(/<[^>]+>/g, '').replace(/\n{2,}/g, '\n').trim();
+    const withoutTags = replaced.replace(/<\/?(?:b|strong|i|em|u|sup|sub|ul|ol|li|p|div|br|span|code)>/gi, '');
+    const decoded = decodeHtmlEntities(withoutTags);
+    return decoded.replace(/\n{2,}/g, '\n').trim();
 }
 
 function hasRichTextContent(html) {
