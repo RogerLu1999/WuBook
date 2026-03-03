@@ -109,6 +109,7 @@ const importInput = document.getElementById('import-input');
 const exportBtn = document.getElementById('export-btn');
 const exportPaperBtn = document.getElementById('export-paper-btn');
 const paperModeToggle = document.getElementById('paper-mode-questions-only');
+const paperIncludeSourceToggle = document.getElementById('paper-include-source');
 const clearBtn = document.getElementById('clear-btn');
 const entriesContainer = document.getElementById('entries');
 const entriesTable = document.getElementById('entries-table');
@@ -403,7 +404,8 @@ const STORAGE_KEYS = {
     sourceHistory: 'wubook:sourceHistory',
     subjectHistory: 'wubook:subjectHistory',
     questionTypeHistory: 'wubook:questionTypeHistory',
-    paperExportMode: 'wubook:paperExportMode'
+    paperExportMode: 'wubook:paperExportMode',
+    paperIncludeSource: 'wubook:paperIncludeSource'
 };
 
 const SUBJECT_BASE_OPTIONS = ['数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理', '政治', '科学'];
@@ -423,11 +425,17 @@ const PAPER_EXPORT_MODES = {
 };
 
 let paperExportMode = getSavedPaperExportMode();
+let paperIncludeSource = getSavedPaperIncludeSource();
 syncPaperExportModeToggle();
+syncPaperIncludeSourceToggle();
 
 paperModeToggle?.addEventListener('change', () => {
     const mode = paperModeToggle.checked ? PAPER_EXPORT_MODES.QUESTION_ONLY : PAPER_EXPORT_MODES.DETAILED;
     setPaperExportMode(mode);
+});
+
+paperIncludeSourceToggle?.addEventListener('change', () => {
+    setPaperIncludeSource(Boolean(paperIncludeSourceToggle.checked));
 });
 
 let exportInProgress = null;
@@ -1108,7 +1116,7 @@ exportPaperBtn?.addEventListener('click', async () => {
         endpoint: '/api/entries/export-paper',
         fallbackName: `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`,
         errorMessage: 'Failed to export paper.',
-        payload: () => ({ mode: paperExportMode })
+        payload: () => ({ mode: paperExportMode, includeSource: paperIncludeSource })
     });
 });
 
@@ -2210,6 +2218,43 @@ function syncPaperExportModeToggle() {
     }
     paperModeToggle.checked = paperExportMode === PAPER_EXPORT_MODES.QUESTION_ONLY;
 }
+
+function setPaperIncludeSource(enabled) {
+    paperIncludeSource = Boolean(enabled);
+    syncPaperIncludeSourceToggle();
+
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return;
+    }
+
+    try {
+        window.localStorage.setItem(STORAGE_KEYS.paperIncludeSource, paperIncludeSource ? '1' : '0');
+    } catch (error) {
+        console.warn('Unable to persist paper include-source option.', error);
+    }
+}
+
+function getSavedPaperIncludeSource() {
+    if (!LOCAL_STORAGE_AVAILABLE) {
+        return false;
+    }
+
+    try {
+        const stored = (window.localStorage.getItem(STORAGE_KEYS.paperIncludeSource) || '').toString().trim();
+        return stored === '1' || stored.toLowerCase() === 'true';
+    } catch (error) {
+        console.warn('Unable to read paper include-source option.', error);
+        return false;
+    }
+}
+
+function syncPaperIncludeSourceToggle() {
+    if (!paperIncludeSourceToggle) {
+        return;
+    }
+    paperIncludeSourceToggle.checked = paperIncludeSource;
+}
+
 
 function rememberHistoryValue(storageKey, value) {
     const normalized = (value ?? '').toString().trim();

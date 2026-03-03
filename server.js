@@ -3699,7 +3699,8 @@ app.post('/api/entries/export-paper', async (req, res) => {
         }
 
         const mode = req.body?.mode === 'question-only' ? 'question-only' : 'detailed';
-        const { buffer: docBuffer, updatedEntryIds } = await createPaperExport(selectedEntries, { mode });
+        const includeSource = req.body?.includeSource === true || req.body?.includeSource === 'true';
+        const { buffer: docBuffer, updatedEntryIds } = await createPaperExport(selectedEntries, { mode, includeSource });
         const filename = `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`;
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
@@ -4640,6 +4641,7 @@ async function createPaperExport(entries, options = {}) {
     }
 
     const mode = options.mode === 'question-only' ? 'question-only' : 'detailed';
+    const includeSource = options.includeSource === true;
     const doc = new Document({ sections: [] });
     const children = [];
     const updatedEntryIds = new Set();
@@ -4684,13 +4686,22 @@ async function createPaperExport(entries, options = {}) {
             if (entry.subject) metaParts.push(entry.subject);
             if (entry.semester) metaParts.push(entry.semester);
             if (entry.questionType) metaParts.push(entry.questionType);
-            if (entry.source) metaParts.push(`来源：${entry.source}`);
             metaParts.push(`日期：${formatDateOnly(entry.createdAt)}`);
             const metaText = `【${metaParts.join(' / ')}】`;
             questionParagraphs.push(
                 new Paragraph({
                     children: [new TextRun({ text: metaText, italics: true, size: PAPER_META_FONT_SIZE })],
                     spacing: { after: 150 }
+                })
+            );
+        }
+
+        if (includeSource) {
+            const sourceText = entry.source ? `来源：${entry.source}` : '来源：—';
+            questionParagraphs.push(
+                new Paragraph({
+                    children: [new TextRun({ text: `【${sourceText}】`, italics: true, size: PAPER_META_FONT_SIZE })],
+                    spacing: { after: 120 }
                 })
             );
         }
