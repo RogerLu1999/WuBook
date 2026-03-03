@@ -154,7 +154,18 @@ const LATEX_SYMBOL_MAP = new Map([
     ['\\rho', 'ρ'],
     ['\\sigma', 'σ'],
     ['\\phi', 'φ'],
-    ['\\omega', 'ω']
+    ['\\omega', 'ω'],
+    ['\\sin', 'sin'],
+    ['\\cos', 'cos'],
+    ['\\tan', 'tan'],
+    ['\\cot', 'cot'],
+    ['\\sec', 'sec'],
+    ['\\csc', 'csc'],
+    ['\\arcsin', 'arcsin'],
+    ['\\arccos', 'arccos'],
+    ['\\arctan', 'arctan'],
+    ['\\ln', 'ln'],
+    ['\\log', 'log']
 ]);
 
 const SUBJECT_PREFIX_MAP = new Map([
