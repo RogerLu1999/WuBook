@@ -3699,7 +3699,11 @@ app.post('/api/entries/export-paper', async (req, res) => {
         }
 
         const mode = req.body?.mode === 'question-only' ? 'question-only' : 'detailed';
-        const { buffer: docBuffer, updatedEntryIds } = await createPaperExport(selectedEntries, { mode });
+        const sourcePrefixEnabled = req.body?.sourcePrefixEnabled === true;
+        const { buffer: docBuffer, updatedEntryIds } = await createPaperExport(selectedEntries, {
+            mode,
+            sourcePrefixEnabled
+        });
         const filename = `wubook-paper-${new Date().toISOString().split('T')[0]}.docx`;
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
@@ -4640,6 +4644,7 @@ async function createPaperExport(entries, options = {}) {
     }
 
     const mode = options.mode === 'question-only' ? 'question-only' : 'detailed';
+    const sourcePrefixEnabled = options.sourcePrefixEnabled === true;
     const doc = new Document({ sections: [] });
     const children = [];
     const updatedEntryIds = new Set();
@@ -4647,7 +4652,10 @@ async function createPaperExport(entries, options = {}) {
     for (const [index, entry] of entries.entries()) {
         const questionNumber = index + 1;
         const questionParagraphs = [];
-        const createNumberPrefix = () => new TextRun({ text: `${questionNumber}. `, bold: true, size: DOCX_FONT_SIZE });
+        const createNumberPrefix = () => {
+            const sourcePrefix = sourcePrefixEnabled && entry.source ? `【${entry.source}】 ` : '';
+            return new TextRun({ text: `${questionNumber}. ${sourcePrefix}`, bold: true, size: DOCX_FONT_SIZE });
+        };
         const questionImageUrl = entry.questionImageResizedUrl || entry.questionImageUrl;
         let questionImage = null;
         if (questionImageUrl) {
