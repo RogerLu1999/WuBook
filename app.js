@@ -4,7 +4,7 @@ const state = {
         search: '',
         type: '',
         subject: '',
-        semester: '八上',
+        semester: '八下',
         source: '',
         errorReason: '',
         dateStart: '',
@@ -5929,7 +5929,7 @@ function applyWizardDefaults() {
         wizardSubjectInput.value = defaultSubject;
     }
     if (wizardSemesterSelect && !wizardSemesterSelect.value) {
-        wizardSemesterSelect.value = '八上';
+        wizardSemesterSelect.value = '八下';
     }
     if (wizardCreatedAtInput && !wizardCreatedAtInput.value) {
         wizardCreatedAtInput.value = todayDateValue();
@@ -6244,7 +6244,7 @@ function applyEntryFormPersistentDefaults() {
 
     const defaultSubject = getLastSubject() || '数学';
     const defaultSource = getLastSource();
-    const defaultSemester = readStoredTextValue(STORAGE_KEYS.lastSemester) || '八上';
+    const defaultSemester = readStoredTextValue(STORAGE_KEYS.lastSemester) || '八下';
     const defaultErrorReason = readStoredTextValue(STORAGE_KEYS.lastErrorReason);
     const defaultRemark = readStoredTextValue(STORAGE_KEYS.lastRemark);
     const defaultQuestionType = readStoredTextValue(STORAGE_KEYS.lastQuestionType);
@@ -6276,10 +6276,10 @@ function setDefaultSubjectAndSemester() {
         wizardSubjectInput.value = defaultSubject;
     }
     if (semesterSelect && !semesterSelect.value) {
-        semesterSelect.value = '八上';
+        semesterSelect.value = '八下';
     }
     if (wizardSemesterSelect && !wizardSemesterSelect.value) {
-        wizardSemesterSelect.value = '八上';
+        wizardSemesterSelect.value = '八下';
     }
 }
 
@@ -6308,7 +6308,7 @@ function getDefaultSemesterValue() {
         return wizardValue;
     }
 
-    return '八上';
+    return '八下';
 }
 
 function setPaperRepoDefaultDates(options = {}) {
