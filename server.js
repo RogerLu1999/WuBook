@@ -3748,11 +3748,13 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(ROOT_DIR, 'index.html'));
 });
 
-app.listen(PORT, async () => {
-    await ensureDirectories();
-    await verifyExternalConnections();
-    console.log(`Wu(悟)Book server running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+    app.listen(PORT, async () => {
+        await ensureDirectories();
+        await verifyExternalConnections();
+        console.log(`Wu(悟)Book server running on http://localhost:${PORT}`);
+    });
+}
 
 async function buildEntry(body, files = {}, options = {}) {
     const { skipValidation = false } = options;
@@ -4900,6 +4902,8 @@ function normalizeMathTextBase(text, options = {}) {
     if (!text) return '';
 
     let normalized = text.replace(/\$\$?|\\\(|\\\)|\\\[|\\\]/g, '');
+    const protectedEscapedLiterals = protectEscapedLiterals(normalized);
+    normalized = protectedEscapedLiterals.text;
     normalized = normalized.replace(/\\_/g, '_');
     normalized = normalized.replace(/\\\s+/g, ' ');
     if (convertFractions) {
@@ -4912,14 +4916,60 @@ function normalizeMathTextBase(text, options = {}) {
     normalized = normalized.replace(/\\cdot/g, '·');
     normalized = replaceLatexSymbols(normalized);
     normalized = normalized.replace(/\\(?![a-zA-Z])/g, '');
+    const protectedUnderlineRuns = protectUnderlineRuns(normalized);
+    normalized = protectedUnderlineRuns.text;
     normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
     normalized = replaceWithScript(normalized, /_\{([^}]+)\}|_(\S)/g, SUBSCRIPT_MAP);
     normalized = replaceResidualScriptMarkup(normalized);
+    normalized = restoreProtectedUnderlineRuns(normalized, protectedUnderlineRuns.tokens);
+    normalized = restoreProtectedLiterals(normalized, protectedEscapedLiterals.tokens);
     normalized = normalized.replace(/\s+/g, ' ');
     if (trimWhitespace) {
         normalized = normalized.trim();
     }
     return normalized;
+}
+
+function protectEscapedLiterals(text) {
+    if (!text) return { text: '', tokens: [] };
+
+    const tokens = [];
+    const protectedText = text.replace(/\\([_^{}\\])/g, (_, literal) => {
+        const token = `\uE010${tokens.length}\uE011`;
+        tokens.push({ token, value: literal });
+        return token;
+    });
+    return { text: protectedText, tokens };
+}
+
+function restoreProtectedLiterals(text, tokens) {
+    if (!text || !Array.isArray(tokens) || !tokens.length) return text || '';
+    let restored = text;
+    for (const { token, value } of tokens) {
+        restored = restored.split(token).join(value);
+    }
+    return restored;
+}
+
+function protectUnderlineRuns(text) {
+    if (!text) return { text: '', tokens: [] };
+
+    const tokens = [];
+    const protectedText = text.replace(/_{2,}/g, (match) => {
+        const token = `\uE000${tokens.length}\uE001`;
+        tokens.push({ token, value: match });
+        return token;
+    });
+    return { text: protectedText, tokens };
+}
+
+function restoreProtectedUnderlineRuns(text, tokens) {
+    if (!text || !Array.isArray(tokens) || !tokens.length) return text || '';
+    let restored = text;
+    for (const { token, value } of tokens) {
+        restored = restored.split(token).join(value);
+    }
+    return restored;
 }
 
 function replaceResidualScriptMarkup(text) {
@@ -4931,6 +4981,15 @@ function replaceResidualScriptMarkup(text) {
         .replace(/_\{([^}]+)\}/g, '₍$1₎')
         .replace(/_(\S)/g, '₍$1₎');
 }
+
+module.exports = {
+    normalizeMathTextBase,
+    normalizeMathText,
+    protectEscapedLiterals,
+    restoreProtectedLiterals,
+    protectUnderlineRuns,
+    restoreProtectedUnderlineRuns
+};
 
 function replaceLatexFractions(text) {
     if (!text) return '';
