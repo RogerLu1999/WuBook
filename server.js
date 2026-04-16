@@ -4914,11 +4914,22 @@ function normalizeMathTextBase(text, options = {}) {
     normalized = normalized.replace(/\\(?![a-zA-Z])/g, '');
     normalized = replaceWithScript(normalized, /\^\{([^}]+)\}|\^(\S)/g, SUPERSCRIPT_MAP);
     normalized = replaceWithScript(normalized, /_\{([^}]+)\}|_(\S)/g, SUBSCRIPT_MAP);
+    normalized = replaceResidualScriptMarkup(normalized);
     normalized = normalized.replace(/\s+/g, ' ');
     if (trimWhitespace) {
         normalized = normalized.trim();
     }
     return normalized;
+}
+
+function replaceResidualScriptMarkup(text) {
+    if (!text) return '';
+
+    return text
+        .replace(/\^\{([^}]+)\}/g, '⁽$1⁾')
+        .replace(/\^(\S)/g, '⁽$1⁾')
+        .replace(/_\{([^}]+)\}/g, '₍$1₎')
+        .replace(/_(\S)/g, '₍$1₎');
 }
 
 function replaceLatexFractions(text) {
